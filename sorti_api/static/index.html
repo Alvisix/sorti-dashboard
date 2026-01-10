@@ -1,0 +1,782 @@
+<!doctype html>
+<html lang="it">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sorti SmartBin Dashboard</title>
+
+  <!-- Chart.js (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: rgba(255, 255, 255, 0.08);
+      --panel-2: rgba(255, 255, 255, 0.06);
+      --border: rgba(255, 255, 255, 0.10);
+      --text: rgba(255, 255, 255, 0.92);
+      --muted: rgba(255, 255, 255, 0.65);
+      --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+      --radius: 16px;
+
+      --ok: #27c281;
+      --warn: #ffb020;
+      --bad: #ff4d5a;
+
+      --accent: #7c5cff;
+      --accent-2: #22c3ff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 700px at 10% 10%, rgba(124, 92, 255, 0.35), transparent 55%),
+        radial-gradient(1000px 600px at 90% 20%, rgba(34, 195, 255, 0.25), transparent 55%),
+        radial-gradient(800px 500px at 50% 90%, rgba(39, 194, 129, 0.18), transparent 55%),
+        var(--bg);
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 22px 16px 40px;
+    }
+
+    header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+
+    .title {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: 22px;
+      letter-spacing: 0.2px;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      box-shadow: var(--shadow);
+      white-space: nowrap;
+      user-select: none;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--ok);
+      box-shadow: 0 0 0 4px rgba(39, 194, 129, 0.18);
+    }
+
+    .grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .grid.top {
+      grid-template-columns: 1fr;
+    }
+
+    @media (min-width: 860px) {
+      .grid.top {
+        grid-template-columns: 1.2fr 0.8fr;
+      }
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 14px;
+      overflow: hidden;
+    }
+
+    .card h2 {
+      margin: 0 0 10px;
+      font-size: 14px;
+      color: var(--muted);
+      font-weight: 600;
+      letter-spacing: 0.2px;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .metric {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px;
+    }
+
+    .metric .label {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+
+    .metric .value {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.3px;
+    }
+
+    .controls {
+      display: grid;
+      gap: 10px;
+    }
+
+    .row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      max-width: 560px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      outline: none;
+      background: rgba(0, 0, 0, 0.18);
+      color: var(--text);
+    }
+
+    input[type="text"]::placeholder {
+      color: rgba(255, 255, 255, 0.45);
+    }
+
+    .btn {
+      padding: 9px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text);
+      cursor: pointer;
+      transition: transform .05s ease, background .15s ease, border-color .15s ease;
+      user-select: none;
+    }
+
+    .btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.18);
+    }
+
+    .btn:active {
+      transform: translateY(1px);
+    }
+
+    .btn.primary {
+      border: none;
+      background: linear-gradient(135deg, rgba(124, 92, 255, 0.95), rgba(34, 195, 255, 0.75));
+      box-shadow: 0 10px 20px rgba(124, 92, 255, 0.18);
+    }
+
+    .btn.ghost {
+      background: rgba(0, 0, 0, 0.16);
+    }
+
+    .msg {
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .msg.error {
+      color: #ffb3b8;
+    }
+
+    .section-title {
+      margin: 18px 0 10px;
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.8);
+      font-weight: 700;
+      letter-spacing: 0.2px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    th,
+    td {
+      padding: 10px 10px;
+      text-align: left;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      vertical-align: top;
+      font-size: 13px;
+    }
+
+    th {
+      color: rgba(255, 255, 255, 0.72);
+      font-weight: 700;
+      background: rgba(0, 0, 0, 0.18);
+      position: sticky;
+      top: 0;
+      backdrop-filter: blur(8px);
+      z-index: 1;
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(0, 0, 0, 0.16);
+      margin-left: 8px;
+      user-select: none;
+    }
+
+    .badge .b-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--ok);
+    }
+
+    .badge.ok .b-dot {
+      background: var(--ok);
+    }
+
+    .badge.warn .b-dot {
+      background: var(--warn);
+    }
+
+    .badge.bad .b-dot {
+      background: var(--bad);
+    }
+
+    .progress {
+      margin-top: 8px;
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.10);
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      width: 220px;
+    }
+
+    .bar {
+      height: 10px;
+      width: 0%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(39, 194, 129, 0.95), rgba(34, 195, 255, 0.65));
+    }
+
+    .bar.warn {
+      background: linear-gradient(90deg, rgba(255, 176, 32, 0.95), rgba(255, 255, 255, 0.25));
+    }
+
+    .bar.bad {
+      background: linear-gradient(90deg, rgba(255, 77, 90, 0.95), rgba(124, 92, 255, 0.45));
+    }
+
+    .split {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 1fr;
+    }
+
+    @media (min-width: 860px) {
+      .split {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    .bars {
+      display: grid;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .barrow {
+      display: grid;
+      grid-template-columns: 90px 1fr 70px;
+      gap: 10px;
+      align-items: center;
+      font-size: 12px;
+    }
+
+    .barrow .date {
+      color: var(--muted);
+    }
+
+    .barwrap {
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.10);
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+    }
+
+    .barfill {
+      height: 10px;
+      width: 0%;
+      background: linear-gradient(90deg, rgba(124, 92, 255, 0.9), rgba(34, 195, 255, 0.65));
+      border-radius: 999px;
+    }
+
+    .right {
+      text-align: right;
+      color: rgba(255, 255, 255, 0.85);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .small {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* Grafico */
+    .chart-wrap {
+      background: rgba(0, 0, 0, 0.18);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      border-radius: 14px;
+      padding: 10px;
+      margin-top: 10px;
+    }
+
+    canvas {
+      max-width: 100%;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <header>
+      <div class="title">
+        <h1>Sorti SmartBin Dashboard</h1>
+        <p class="subtitle">Monitoraggio CO₂ e materiali, stato cestini, report ed export CSV (protetto da API key).</p>
+      </div>
+      <div class="pill" title="Se vedi questa pagina, il server è raggiungibile">
+        <div class="dot"></div>
+        <div style="font-size:12px; color:rgba(255,255,255,0.75);">Server online</div>
+      </div>
+    </header>
+
+    <div class="grid top">
+      <div class="card">
+        <h2>Totali</h2>
+        <div class="metrics">
+          <div class="metric">
+            <div class="label">Totale grammi raccolti</div>
+            <div id="totalWeight" class="value">—</div>
+          </div>
+          <div class="metric">
+            <div class="label">Totale CO₂ risparmiata</div>
+            <div id="totalCO2" class="value">—</div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:10px;">Aggiornamento automatico ogni 4 secondi.</div>
+      </div>
+
+      <div class="card">
+        <h2>Azioni protette (API Key)</h2>
+        <div class="controls">
+          <div class="row">
+            <input id="apiKeyInput" type="text" placeholder="Incolla la tua X-API-Key (salvata nel browser)" />
+          </div>
+          <div class="row">
+            <button class="btn primary" onclick="saveKey()">Salva API Key</button>
+            <button class="btn ghost" onclick="clearKey()">Rimuovi</button>
+          </div>
+
+          <div class="row">
+            <button class="btn" onclick="downloadEventsCSV()">Scarica eventi CSV</button>
+          </div>
+
+          <div class="row">
+            <span class="small">Report giornaliero (giorni):</span>
+            <input id="daysInput" type="text" value="30" style="max-width:110px;" />
+            <button class="btn" onclick="downloadDailyCSV()">Scarica CSV</button>
+          </div>
+
+          <div id="exportMsg" class="msg"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-title">Cestini</div>
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>Bin</th>
+            <th>Peso (g)</th>
+            <th>Capacità (g)</th>
+            <th>Riempimento</th>
+            <th>Ultimo update</th>
+            <th>Azioni</th>
+          </tr>
+        </thead>
+        <tbody id="binsBody"></tbody>
+      </table>
+    </div>
+
+    <div class="section-title">Report</div>
+    <div class="split">
+      <div class="card">
+        <h2>Per materiale</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Materiale</th>
+              <th>Grammi</th>
+              <th>CO₂ (g)</th>
+            </tr>
+          </thead>
+          <tbody id="materialsBody"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>Ultimi 7 giorni (CO₂)</h2>
+        <div id="dailyBars" class="bars"></div>
+      </div>
+    </div>
+
+    <!-- GRAFICO (nuovo) -->
+    <div class="section-title">Andamento CO₂</div>
+    <div class="card">
+      <h2>Ultimi 30 giorni (CO₂ risparmiata in g)</h2>
+      <div class="chart-wrap">
+        <canvas id="co2Chart" height="110"></canvas>
+      </div>
+      <div class="small" style="margin-top:10px;">
+        Nota: i giorni senza eventi non compaiono (possiamo anche “riempirli” a zero se vuoi).
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================
+    // Helpers
+    // =========================
+    async function fetchJSON(url, opts) {
+      const res = await fetch(url, opts);
+      if (!res.ok) throw new Error(await res.text());
+      return await res.json();
+    }
+
+    function esc(s) { return String(s).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;"); }
+
+    function formatNum(n) {
+      const x = Number(n);
+      if (!Number.isFinite(x)) return "0";
+      return Math.round(x).toString();
+    }
+
+    function formatPercent(p) {
+      const n = Number(p);
+      if (!Number.isFinite(n)) return "0.00";
+      return n.toFixed(2);
+    }
+
+    function badgeForFill(fill) {
+      if (fill >= 85) return `<span class="badge bad"><span class="b-dot"></span>PIENO</span>`;
+      if (fill >= 60) return `<span class="badge warn"><span class="b-dot"></span>QUASI PIENO</span>`;
+      return `<span class="badge ok"><span class="b-dot"></span>OK</span>`;
+    }
+
+    function barClass(fill) {
+      if (fill >= 85) return "bad";
+      if (fill >= 60) return "warn";
+      return "";
+    }
+
+    // =========================
+    // API Key (localStorage)
+    // =========================
+    const KEY_STORAGE = "sorti_api_key";
+
+    function getKey() { return localStorage.getItem(KEY_STORAGE) || ""; }
+
+    function setMsg(text, isError = false) {
+      const el = document.getElementById("exportMsg");
+      el.textContent = text;
+      el.className = "msg" + (isError ? " error" : "");
+    }
+
+    function saveKey() {
+      const v = document.getElementById("apiKeyInput").value.trim();
+      if (!v) { setMsg("Inserisci una API Key prima di salvare.", true); return; }
+      localStorage.setItem(KEY_STORAGE, v);
+      setMsg("API Key salvata ✅");
+    }
+
+    function clearKey() {
+      localStorage.removeItem(KEY_STORAGE);
+      document.getElementById("apiKeyInput").value = "";
+      setMsg("API Key rimossa.");
+    }
+
+    function loadKeyIntoInput() {
+      const k = getKey();
+      if (k) { document.getElementById("apiKeyInput").value = k; setMsg("API Key caricata dal browser ✅"); }
+      else setMsg("Inserisci la API Key per export CSV e 'Segna svuotato'.");
+    }
+
+    function getKeyOrWarn() {
+      const key = getKey() || document.getElementById("apiKeyInput").value.trim();
+      if (!key) { setMsg("Manca la API Key. Incollala e premi Salva.", true); return null; }
+      return key;
+    }
+
+    // =========================
+    // Download CSV con header
+    // =========================
+    async function downloadWithKey(url, filename) {
+      const key = getKeyOrWarn();
+      if (!key) return;
+
+      const res = await fetch(url, { method: "GET", headers: { "X-API-Key": key } });
+      if (!res.ok) {
+        const t = await res.text();
+        setMsg("Errore download (" + res.status + "). Controlla API Key. Dettagli: " + t, true);
+        return;
+      }
+
+      const blob = await res.blob();
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(href);
+
+      setMsg("Download avviato ✅ (" + filename + ")");
+    }
+
+    async function downloadEventsCSV() { await downloadWithKey("/api/export/events.csv", "sorti_events.csv"); }
+
+    async function downloadDailyCSV() {
+      const raw = document.getElementById("daysInput").value.trim();
+      const days = Number(raw);
+      if (!Number.isFinite(days) || days < 1 || days > 365) {
+        setMsg("Giorni non valido: inserisci un numero tra 1 e 365.", true);
+        return;
+      }
+      await downloadWithKey(`/api/export/daily.csv?days=${days}`, `sorti_daily_${days}d.csv`);
+    }
+
+    // =========================
+    // Segna svuotato (protetto)
+    // =========================
+    async function emptyBin(binId) {
+      const ok = confirm(`Confermi che hai svuotato fisicamente il cestino ${binId}?`);
+      if (!ok) return;
+
+      const key = getKeyOrWarn();
+      if (!key) return;
+
+      const res = await fetch(`/api/bins/${encodeURIComponent(binId)}/empty`, {
+        method: "POST",
+        headers: { "X-API-Key": key }
+      });
+
+      if (!res.ok) {
+        const t = await res.text();
+        setMsg("Errore svuotamento (" + res.status + "). Dettagli: " + t, true);
+        return;
+      }
+
+      setMsg(`Cestino ${binId} segnato come svuotato ✅`);
+      await refresh();
+    }
+
+    // =========================
+    // GRAFICO CO2 (Chart.js)
+    // =========================
+    let co2Chart = null;
+
+    function ensureChart() {
+      if (co2Chart) return;
+
+      const ctx = document.getElementById("co2Chart").getContext("2d");
+      co2Chart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: [],
+          datasets: [{
+            label: "CO₂ risparmiata (g)",
+            data: [],
+            tension: 0.25,
+            borderWidth: 2,
+            pointRadius: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { labels: { color: "rgba(255,255,255,0.75)" } },
+            tooltip: { enabled: true }
+          },
+          scales: {
+            x: {
+              ticks: { color: "rgba(255,255,255,0.65)" },
+              grid: { color: "rgba(255,255,255,0.08)" }
+            },
+            y: {
+              ticks: { color: "rgba(255,255,255,0.65)" },
+              grid: { color: "rgba(255,255,255,0.08)" }
+            }
+          }
+        }
+      });
+    }
+
+    async function refreshChart(days = 30) {
+      ensureChart();
+      const daily = await fetchJSON(`/api/stats/daily?days=${days}`);
+
+      const labels = daily.map(d => d.day);
+      const values = daily.map(d => Number(d.co2_saved_g) || 0);
+
+      co2Chart.data.labels = labels;
+      co2Chart.data.datasets[0].data = values;
+      co2Chart.update();
+    }
+
+    // =========================
+    // Refresh dashboard
+    // =========================
+    async function refresh() {
+      const totals = await fetchJSON('/api/stats/total');
+      document.getElementById('totalWeight').textContent = formatNum(totals.total_weight_g) + " g";
+      document.getElementById('totalCO2').textContent = formatNum(totals.total_co2_saved_g) + " g";
+
+      const bins = await fetchJSON('/api/bins');
+      const body = document.getElementById('binsBody');
+      body.innerHTML = "";
+
+      for (const b of bins) {
+        const fill = Number(b.fill_percent) || 0;
+        const fillClamped = Math.max(0, Math.min(100, fill));
+        const bclass = barClass(fill);
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><strong>${esc(b.bin_id)}</strong></td>
+          <td class="right">${formatNum(b.current_weight_g)}</td>
+          <td class="right">${formatNum(b.capacity_g)}</td>
+          <td>
+            <span class="right">${formatPercent(fill)}%</span>
+            ${badgeForFill(fill)}
+            <div class="progress" title="${formatPercent(fill)}%">
+              <div class="bar ${bclass}" style="width:${fillClamped}%;"></div>
+            </div>
+          </td>
+          <td class="small">${esc(b.last_seen ?? "-")}</td>
+          <td><button class="btn" onclick="emptyBin('${esc(b.bin_id)}')">Segna svuotato</button></td>
+        `;
+        body.appendChild(tr);
+      }
+
+      const materials = await fetchJSON('/api/stats/by_material');
+      const mBody = document.getElementById('materialsBody');
+      mBody.innerHTML = "";
+
+      if (materials.length === 0) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td class="small" colspan="3">Nessun dato ancora (aggiungi eventi).</td>`;
+        mBody.appendChild(tr);
+      } else {
+        for (const r of materials) {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${esc(r.material)}</td>
+            <td class="right">${formatNum(r.weight_g)} g</td>
+            <td class="right">${formatNum(r.co2_saved_g)} g</td>
+          `;
+          mBody.appendChild(tr);
+        }
+      }
+
+      const daily7 = await fetchJSON('/api/stats/daily?days=7');
+      const container = document.getElementById('dailyBars');
+      container.innerHTML = "";
+
+      if (daily7.length === 0) {
+        container.innerHTML = `<div class="small">Nessun dato negli ultimi 7 giorni.</div>`;
+      } else {
+        let maxCO2 = 0;
+        for (const d of daily7) maxCO2 = Math.max(maxCO2, Number(d.co2_saved_g) || 0);
+
+        for (const d of daily7) {
+          const co2 = Number(d.co2_saved_g) || 0;
+          const w = maxCO2 > 0 ? (co2 / maxCO2) * 100 : 0;
+
+          const row = document.createElement('div');
+          row.className = "barrow";
+          row.innerHTML = `
+            <div class="date">${esc(d.day)}</div>
+            <div class="barwrap"><div class="barfill" style="width:${w}%;"></div></div>
+            <div class="right">${formatNum(co2)} g</div>
+          `;
+          container.appendChild(row);
+        }
+      }
+
+      // Aggiorna grafico 30 giorni
+      await refreshChart(30);
+    }
+
+    loadKeyIntoInput();
+    refresh();
+    setInterval(refresh, 4000);
+  </script>
+</body>
+
+</html>
