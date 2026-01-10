@@ -705,15 +705,48 @@
     if (!matChart) {
       const ctx2 = document.getElementById("matChart").getContext("2d");
       matChart = new Chart(ctx2, {
-        type: "doughnut",
-        data: {
-          labels: [],
-          datasets: [{
-            label: "CO₂ (g) per materiale",
-            data: [],
-            borderWidth: 1
-          }]
-        },
+  type: "doughnut",
+  data: {
+    labels: [],
+    datasets: [{
+      label: "CO₂ (g) per materiale",
+      data: [],
+      // Palette Sorti (ripetuta se i materiali sono > dei colori)
+      backgroundColor: [
+        "rgba(41, 211, 145, 0.95)",  // green
+        "rgba(49, 199, 255, 0.90)",  // cyan
+        "rgba(44, 123, 255, 0.90)",  // blue
+        "rgba(124, 92, 255, 0.85)",  // violet
+        "rgba(255, 176, 32, 0.90)",  // orange
+        "rgba(255, 82, 96, 0.90)"    // red
+      ],
+      borderColor: "rgba(255,255,255,0.65)",
+      borderWidth: 2,
+      hoverOffset: 8,
+      cutout: "58%"
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        labels: {
+          color: "rgba(255,255,255,0.78)",
+          boxWidth: 18
+        }
+      },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => {
+            const v = Number(ctx.raw || 0);
+            return ` ${ctx.label}: ${Math.round(v)} g CO₂`;
+          }
+        }
+      }
+    }
+  }
+});
         options: {
           responsive: true,
           maintainAspectRatio: false,
@@ -856,3 +889,4 @@
 </script>
 </body>
 </html>
+
