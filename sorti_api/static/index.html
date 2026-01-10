@@ -22,6 +22,7 @@
       --radius: 18px;
 
       --s-green:#29d391;
+      --s-green2:#19b97c;
       --s-blue:#31c7ff;
       --s-blue2:#2c7bff;
       --s-violet:#7c5cff;
@@ -51,9 +52,13 @@
       margin-bottom: 14px;
     }
 
-    .brand{ display:flex; flex-direction:column; gap:6px; }
-    .brand .logo{ display:flex; align-items:center; gap:10px; }
+    .brand{
+      display:flex; flex-direction:column; gap:6px;
+    }
 
+    .brand .logo{
+      display:flex; align-items:center; gap:10px;
+    }
     .mark{
       width: 36px; height: 36px; border-radius: 12px;
       background: linear-gradient(135deg, rgba(41,211,145,.95), rgba(49,199,255,.85));
@@ -99,7 +104,9 @@
     }
     .status-text{ font-size: 12px; color: rgba(255,255,255,.75); }
 
-    .grid{ display:grid; gap: 12px; }
+    .grid{
+      display:grid; gap: 12px;
+    }
     .grid.top{ grid-template-columns: 1fr; }
     @media (min-width: 900px){
       .grid.top{ grid-template-columns: 1.3fr .7fr; }
@@ -173,7 +180,9 @@
     .metric .value{ position:relative; font-size: 24px; font-weight: 900; letter-spacing: -0.3px; }
     .metric .small{ position:relative; color: rgba(255,255,255,.68); font-size: 12px; margin-top: 4px; }
 
-    .controls{ display:grid; gap:10px; }
+    .controls{
+      display:grid; gap:10px;
+    }
     .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
 
     input[type="text"]{
@@ -301,10 +310,8 @@
       border-radius: 16px;
       padding: 10px;
       margin-top: 10px;
-      min-height: 240px;
     }
     canvas{ max-width:100%; }
-
     .footnote{
       margin-top: 10px;
       font-size: 12px;
@@ -446,7 +453,7 @@
       <div class="card">
         <h2>Andamento CO₂ (range)</h2>
         <div class="chart-wrap">
-          <canvas id="co2Chart"></canvas>
+          <canvas id="co2Chart" height="120"></canvas>
         </div>
         <div class="footnote">
           Mostra i giorni con eventi nel range selezionato.
@@ -456,10 +463,10 @@
       <div class="card">
         <h2>Breakdown materiali (storico totale)</h2>
         <div class="chart-wrap">
-          <canvas id="matChart"></canvas>
+          <canvas id="matChart" height="120"></canvas>
         </div>
         <div class="footnote">
-          Se non ci sono dati, mostro un placeholder invece della ciambella “nera”.
+          Per filtrare anche “per materiale nel range”, serve un endpoint dedicato (te lo aggiungo quando vuoi).
         </div>
       </div>
     </div>
@@ -501,10 +508,17 @@
     const x = Number(g) || 0;
     if (x >= 1000) {
       const kg = x / 1000;
+      // 1 cifra decimale se < 10 kg, altrimenti 0
       const s = (kg < 10 ? kg.toFixed(1) : Math.round(kg).toString());
       return s + " kg";
     }
     return Math.round(x) + " g";
+  }
+
+  function fmtNum(n) {
+    const x = Number(n);
+    if (!Number.isFinite(x)) return "0";
+    return Math.round(x).toString();
   }
 
   function fmtPercent(p) {
@@ -523,24 +537,6 @@
     if (fill >= 85) return "bad";
     if (fill >= 60) return "warn";
     return "";
-  }
-
-  // =========================
-  // Sorti palette (FIX donut nero)
-  // =========================
-  const SORTI_PALETTE = [
-    "rgba(41, 211, 145, 0.95)", // green
-    "rgba(49, 199, 255, 0.90)", // cyan
-    "rgba(44, 123, 255, 0.90)", // blue
-    "rgba(124, 92, 255, 0.85)", // violet
-    "rgba(255, 176, 32, 0.90)", // orange
-    "rgba(255, 82, 96, 0.90)"   // red
-  ];
-
-  function paletteFor(n) {
-    const out = [];
-    for (let i = 0; i < n; i++) out.push(SORTI_PALETTE[i % SORTI_PALETTE.length]);
-    return out;
   }
 
   // =========================
@@ -661,7 +657,9 @@
     return Number.isFinite(n) ? Math.max(1, Math.min(365, n)) : 30;
   }
 
-  function onRangeChange() { refresh(); }
+  function onRangeChange() {
+    refresh(); // ricarica KPI+grafico
+  }
 
   // =========================
   // Charts
@@ -691,8 +689,14 @@
             legend: { labels: { color: "rgba(255,255,255,0.78)" } }
           },
           scales: {
-            x: { ticks: { color: "rgba(255,255,255,0.62)" }, grid: { color: "rgba(255,255,255,0.08)" } },
-            y: { ticks: { color: "rgba(255,255,255,0.62)" }, grid: { color: "rgba(255,255,255,0.08)" } }
+            x: {
+              ticks: { color: "rgba(255,255,255,0.62)" },
+              grid: { color: "rgba(255,255,255,0.08)" }
+            },
+            y: {
+              ticks: { color: "rgba(255,255,255,0.62)" },
+              grid: { color: "rgba(255,255,255,0.08)" }
+            }
           }
         }
       });
@@ -707,26 +711,14 @@
           datasets: [{
             label: "CO₂ (g) per materiale",
             data: [],
-            backgroundColor: [],
-            borderColor: "rgba(255,255,255,0.65)",
-            borderWidth: 2,
-            hoverOffset: 8,
-            cutout: "58%"
+            borderWidth: 1
           }]
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
           plugins: {
-            legend: { labels: { color: "rgba(255,255,255,0.78)", boxWidth: 18 } },
-            tooltip: {
-              callbacks: {
-                label: (ctx) => {
-                  const v = Number(ctx.raw || 0);
-                  return ` ${ctx.label}: ${Math.round(v)} g CO₂`;
-                }
-              }
-            }
+            legend: { labels: { color: "rgba(255,255,255,0.78)" } }
           }
         }
       });
@@ -745,35 +737,13 @@
     co2Chart.data.datasets[0].data = co2Vals;
     co2Chart.update();
 
-    // By material (all-time)  ---- FIX "donut nero"
+    // By material (all-time)
     const mats = await fetchJSON('/api/stats/by_material');
     const matLabels = mats.map(m => m.material);
     const matVals = mats.map(m => Number(m.co2_saved_g) || 0);
 
-    const ds = matChart.data.datasets[0];
-    const sum = matVals.reduce((a, b) => a + b, 0);
-
-    if (sum <= 0) {
-      // Placeholder visibile quando non ci sono dati
-      matChart.data.labels = ["Nessun dato"];
-      ds.data = [1];
-      ds.backgroundColor = ["rgba(255,255,255,0.12)"];
-      ds.borderColor = "rgba(255,255,255,0.25)";
-      ds.borderWidth = 2;
-      ds.hoverOffset = 0;
-      ds.cutout = "58%";
-    } else {
-      matChart.data.labels = matLabels;
-      ds.data = matVals;
-
-      // Forzo palette ad ogni refresh (fix definitivo)
-      ds.backgroundColor = paletteFor(matVals.length);
-      ds.borderColor = "rgba(255,255,255,0.65)";
-      ds.borderWidth = 2;
-      ds.hoverOffset = 8;
-      ds.cutout = "58%";
-    }
-
+    matChart.data.labels = matLabels;
+    matChart.data.datasets[0].data = matVals;
     matChart.update();
   }
 
