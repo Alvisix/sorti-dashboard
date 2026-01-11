@@ -1,13 +1,13 @@
 from fastapi import FastAPI, HTTPException, Header
-from fastapi.responses import HTMLResponse, FileResponse, Response
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import json
 import os
-from pathlib import Path
 import csv
 import io
+from pathlib import Path
 
 from .db import init_db, get_conn
 
@@ -15,24 +15,13 @@ from .db import init_db, get_conn
 # Percorsi del progetto
 # =========================
 
-# Cartella dove si trova questo file (sorti_api/)
 APP_DIR = Path(__file__).resolve().parent
-
-# File dei fattori CO2 (sorti_api/co2_factors.json)
 FACTORS_PATH = APP_DIR / "co2_factors.json"
-
-# Cartella della dashboard statica (sorti_api/static/)
 STATIC_DIR = APP_DIR / "static"
-
-# File HTML principale della dashboard
 INDEX_HTML = STATIC_DIR / "index.html"
 
 
 def load_factors() -> dict:
-    """
-    Carica i fattori CO2 da co2_factors.json.
-    Ritorna un dict tipo: {"plastica": 2.5, "carta": 1.3, ...}
-    """
     if not FACTORS_PATH.exists():
         raise RuntimeError(f"Manca il file fattori CO2: {FACTORS_PATH}")
     return json.loads(FACTORS_PATH.read_text(encoding="utf-8"))
@@ -58,12 +47,10 @@ class BinConfigIn(BaseModel):
 
 app = FastAPI(title="Sorti SmartBin Tracker")
 
-
 # =========================
 # Sicurezza: API KEY
 # =========================
-# Header richiesto per endpoint protetti:
-#   X-API-Key: <chiave>
+
 API_KEY = os.getenv("SORTI_API_KEY", "SORTI-DEMO-KEY-BINARO-2026-01")
 
 
@@ -90,39 +77,64 @@ def _startup():
 
 
 # =========================
-# PWA: Service Worker dalla ROOT (/sw.js)
-# =========================
-# IMPORTANTISSIMO: servire sw.js da "/" dà scope root e rende il sito installabile.
-@app.get("/sw.js")
-def service_worker():
-    sw_path = STATIC_DIR / "sw.js"
-    if not sw_path.exists():
-        raise HTTPException(status_code=404, detail="sw.js non trovato in /static")
-    return FileResponse(
-        sw_path,
-        media_type="application/javascript",
-        headers={
-            "Cache-Control": "no-cache",
-            "Service-Worker-Allowed": "/",  # scope root
-        },
-    )
-
-
-# =========================
 # Pagina principale
 # =========================
 
 @app.get("/", response_class=HTMLResponse)
 def home():
     if INDEX_HTML.exists():
-        html = INDEX_HTML.read_text(encoding="utf-8")
-        return HTMLResponse(html)
+        return HTMLResponse(INDEX_HTML.read_text(encoding="utf-8"))
 
     return HTMLResponse(
         "<h2>Sorti server attivo ✅</h2>"
         "<p>Non trovo <code>sorti_api/static/index.html</code>. "
         "Crea la dashboard oppure usa <a href='/docs'>/docs</a> per testare le API.</p>"
     )
+
+
+# =========================
+# Helper: calcolo daily (DB-agnostico)
+# =========================
+
+def compute_daily(days: int) -> list[dict]:
+    """
+    Aggrega per giorno gli eventi degli ultimi N giorni.
+    DB-agnostico: non usa funzioni SQL tipo substr()/datetime('now'...).
+    Funziona con SQLite e Postgres.
+    """
+    days = max(1, min(int(days), 365))
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff_iso = cutoff.isoformat()
+
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT ts, weight_g, co2_saved_g
+            FROM events
+            WHERE ts >= ?
+            ORDER BY ts ASC
+        """, (cutoff_iso,)).fetchall()
+
+    agg = {}
+    for r in rows:
+        ts_val = r["ts"]
+
+        # psycopg può restituire datetime, sqlite restituisce str
+        if isinstance(ts_val, datetime):
+            day = ts_val.date().isoformat()
+        else:
+            day = str(ts_val)[:10]  # "YYYY-MM-DD" da ISO string
+
+        w = float(r["weight_g"] or 0)
+        c = float(r["co2_saved_g"] or 0)
+
+        if day not in agg:
+            agg[day] = {"day": day, "weight_g": 0.0, "co2_saved_g": 0.0}
+
+        agg[day]["weight_g"] += w
+        agg[day]["co2_saved_g"] += c
+
+    return [agg[k] for k in sorted(agg.keys())]
 
 
 # =========================
@@ -173,14 +185,14 @@ def add_event(
     ts = datetime.now(timezone.utc).isoformat()
 
     with get_conn() as conn:
-        # crea bin se non esiste (default capacity 10000g)
+        # crea bin se manca
         conn.execute("""
             INSERT INTO bins(bin_id, capacity_g, current_weight_g, last_seen)
             VALUES(?, 10000, 0, ?)
             ON CONFLICT(bin_id) DO UPDATE SET last_seen=excluded.last_seen
         """, (ev.bin_id, ts))
 
-        # salva evento
+        # evento
         conn.execute("""
             INSERT INTO events(ts, bin_id, material, weight_g, co2_saved_g)
             VALUES(?, ?, ?, ?, ?)
@@ -269,7 +281,7 @@ def stats_total():
 
 
 # =========================
-# Stats per materiale (LIBERO)
+# Report per materiale (LIBERO)
 # =========================
 
 @app.get("/api/stats/by_material")
@@ -296,33 +308,12 @@ def stats_by_material():
 
 
 # =========================
-# Stats giornaliero (LIBERO)
+# Report giornaliero (LIBERO) - FIX POSTGRES
 # =========================
 
 @app.get("/api/stats/daily")
 def stats_daily(days: int = 30):
-    days = max(1, min(int(days), 365))
-
-    with get_conn() as conn:
-        rows = conn.execute("""
-            SELECT
-              substr(ts, 1, 10) AS day,
-              COALESCE(SUM(weight_g), 0) AS total_weight_g,
-              COALESCE(SUM(co2_saved_g), 0) AS total_co2_saved_g
-            FROM events
-            WHERE ts >= datetime('now', '-' || ? || ' days')
-            GROUP BY day
-            ORDER BY day ASC
-        """, (days,)).fetchall()
-
-    return [
-        {
-            "day": r["day"],
-            "total_weight_g": float(r["total_weight_g"]),
-            "total_co2_saved_g": float(r["total_co2_saved_g"]),
-        }
-        for r in rows
-    ]
+    return compute_daily(days)
 
 
 # =========================
@@ -330,7 +321,9 @@ def stats_daily(days: int = 30):
 # =========================
 
 @app.get("/api/export/events.csv")
-def export_events_csv(x_api_key: str | None = Header(default=None)):
+def export_events_csv(
+    x_api_key: str | None = Header(default=None),
+):
     require_api_key(x_api_key)
 
     with get_conn() as conn:
@@ -344,53 +337,44 @@ def export_events_csv(x_api_key: str | None = Header(default=None)):
     w = csv.writer(buf)
     w.writerow(["ts", "bin_id", "material", "weight_g", "co2_saved_g"])
     for r in rows:
-        w.writerow([r["ts"], r["bin_id"], r["material"], float(r["weight_g"]), float(r["co2_saved_g"])])
+        w.writerow([r["ts"], r["bin_id"], r["material"], r["weight_g"], r["co2_saved_g"]])
 
-    csv_bytes = buf.getvalue().encode("utf-8")
     return Response(
-        content=csv_bytes,
+        content=buf.getvalue(),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="events.csv"'},
+        headers={"Content-Disposition": "attachment; filename=sorti_events.csv"},
     )
 
 
 # =========================
-# Export CSV giornaliero (PROTETTO)
+# Export CSV daily (PROTETTO)
 # =========================
 
 @app.get("/api/export/daily.csv")
-def export_daily_csv(days: int = 30, x_api_key: str | None = Header(default=None)):
+def export_daily_csv(
+    days: int = 30,
+    x_api_key: str | None = Header(default=None),
+):
     require_api_key(x_api_key)
-    days = max(1, min(int(days), 365))
 
-    with get_conn() as conn:
-        rows = conn.execute("""
-            SELECT
-              substr(ts, 1, 10) AS day,
-              COALESCE(SUM(weight_g), 0) AS total_weight_g,
-              COALESCE(SUM(co2_saved_g), 0) AS total_co2_saved_g
-            FROM events
-            WHERE ts >= datetime('now', '-' || ? || ' days')
-            GROUP BY day
-            ORDER BY day ASC
-        """, (days,)).fetchall()
+    rows = compute_daily(days)
 
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["day", "total_weight_g", "total_co2_saved_g"])
     for r in rows:
-        w.writerow([r["day"], float(r["total_weight_g"]), float(r["total_co2_saved_g"])])
+        w.writerow([r["day"], r["weight_g"], r["co2_saved_g"]])
 
-    csv_bytes = buf.getvalue().encode("utf-8")
+    d = max(1, min(int(days), 365))
     return Response(
-        content=csv_bytes,
+        content=buf.getvalue(),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="daily_{days}d.csv"'},
+        headers={"Content-Disposition": f"attachment; filename=sorti_daily_{d}d.csv"},
     )
 
 
 # =========================
-# API: svuota bin (PROTETTO)
+# Svuota bin (PROTETTO) - azzera solo peso bin
 # =========================
 
 @app.post("/api/bins/{bin_id}/empty")
@@ -417,4 +401,3 @@ def empty_bin(
         )
 
     return {"ok": True, "bin_id": bin_id, "emptied_at": now}
-
