@@ -1,448 +1,278 @@
 <!doctype html>
 <html lang="it">
-
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Sorti SmartBin Dashboard</title>
 
-  <!-- PWA / Icons (se li hai in /static) -->
-  <link rel="manifest" href="/static/manifest.webmanifest">
-  <meta name="theme-color" content="#0B1624">
+  <!-- PWA icons (se li hai già in static/) -->
   <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
   <link rel="icon" type="image/png" sizes="512x512" href="/static/icon-512.png">
-
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <link rel="apple-touch-icon" href="/static/icon-192.png">
 
   <style>
-    :root {
-      --bg0: #071019;
-      --bg1: #0B1624;
-      --card: rgba(255, 255, 255, .06);
-      --card2: rgba(255, 255, 255, .08);
-      --stroke: rgba(255, 255, 255, .10);
-      --text: rgba(255, 255, 255, .92);
-      --muted: rgba(255, 255, 255, .65);
-      --muted2: rgba(255, 255, 255, .45);
-
-      --ok: #2ee59d;
-      --warn: #ffcc66;
-      --bad: #ff6b6b;
-
-      --sortiA: #43cea2;
-      --sortiB: #185a9d;
-      --shadow: 0 18px 60px rgba(0, 0, 0, .35);
+    :root{
+      --bg0:#071522;
+      --bg1:#0b1f33;
+      --card: rgba(255,255,255,.06);
+      --card2: rgba(255,255,255,.08);
+      --stroke: rgba(255,255,255,.10);
+      --text: rgba(255,255,255,.92);
+      --muted: rgba(255,255,255,.68);
+      --muted2: rgba(255,255,255,.52);
+      --good:#36d399;
+      --warn:#fbbf24;
+      --bad:#fb7185;
+      --accent:#43cea2;
+      --accent2:#185a9d;
+      --shadow: 0 18px 60px rgba(0,0,0,.45);
       --radius: 18px;
-      --radius2: 22px;
     }
 
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      margin: 0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-      color: var(--text);
+    *{ box-sizing:border-box; }
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      color:var(--text);
       background:
-        radial-gradient(1200px 600px at 15% 10%, rgba(67, 206, 162, .22), transparent 60%),
-        radial-gradient(900px 500px at 70% 0%, rgba(24, 90, 157, .28), transparent 55%),
-        radial-gradient(700px 500px at 80% 70%, rgba(67, 206, 162, .10), transparent 55%),
+        radial-gradient(1100px 520px at 10% -10%, rgba(67,206,162,.35), transparent 55%),
+        radial-gradient(900px 520px at 110% -5%, rgba(24,90,157,.35), transparent 60%),
         linear-gradient(180deg, var(--bg0), var(--bg1));
-      min-height: 100vh;
-      padding: 28px 18px 60px;
+      min-height:100vh;
     }
 
-    .container {
-      max-width: 1180px;
-      margin: 0 auto;
-    }
+    .wrap{ max-width: 1200px; margin: 28px auto; padding: 0 18px 42px; }
 
-    .topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 14px;
-      margin-bottom: 18px;
+    .top{
+      display:flex; align-items:center; justify-content:space-between;
+      gap:12px; margin-bottom: 18px;
     }
-
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
+    .brand{ display:flex; align-items:center; gap:14px; }
+    .logo{
+      width:44px; height:44px; border-radius:14px;
+      background: linear-gradient(135deg, rgba(67,206,162,1), rgba(24,90,157,1));
+      box-shadow: 0 10px 30px rgba(67,206,162,.25);
+      flex:0 0 auto;
     }
+    h1{ font-size: 28px; margin:0; line-height:1.15; }
+    .sub{ color:var(--muted); margin-top:2px; font-size:14px; }
 
-    .logo {
-      width: 44px;
-      height: 44px;
-      border-radius: 14px;
-      background: linear-gradient(135deg, rgba(67, 206, 162, .95), rgba(24, 90, 157, .95));
-      box-shadow: 0 12px 30px rgba(0, 0, 0, .35);
-    }
-
-    h1 {
-      margin: 0;
-      font-size: 26px;
-      letter-spacing: .2px;
-    }
-
-    .subtitle {
-      margin-top: 2px;
-      color: var(--muted);
-      font-size: 13.5px;
-    }
-
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 12px;
-      border-radius: 999px;
+    .pill{
+      display:flex; align-items:center; gap:8px;
+      padding:8px 12px; border-radius:999px;
+      background: rgba(255,255,255,.06);
       border: 1px solid var(--stroke);
-      background: rgba(0, 0, 0, .18);
-      backdrop-filter: blur(10px);
-      box-shadow: 0 10px 25px rgba(0, 0, 0, .18);
     }
+    .dot{ width:10px; height:10px; border-radius:99px; background: var(--good); box-shadow: 0 0 0 5px rgba(54,211,153,.18); }
+    .pill span{ color:var(--muted); font-size:13px; }
 
-    .dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 999px;
-      background: var(--ok);
-      box-shadow: 0 0 0 3px rgba(46, 229, 157, .18);
-    }
+    .grid2{ display:grid; grid-template-columns: 2fr 1.05fr; gap:16px; margin-top: 14px; }
+    @media (max-width: 980px){ .grid2{ grid-template-columns: 1fr; } }
 
-    .grid {
-      display: grid;
-      grid-template-columns: 2fr 1.1fr;
-      gap: 16px;
-      margin-top: 16px;
-    }
-
-    .panel {
-      border: 1px solid var(--stroke);
-      background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .03));
-      border-radius: var(--radius2);
-      box-shadow: var(--shadow);
-      padding: 16px;
-    }
-
-    .panelHeader {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      margin-bottom: 12px;
-    }
-
-    .panelTitle {
-      margin: 0;
-      font-size: 15px;
-      letter-spacing: .2px;
-      color: rgba(255, 255, 255, .9);
-      font-weight: 700;
-    }
-
-    .row {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-
-    .kpiGrid {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 12px;
-      margin-top: 10px;
-    }
-
-    .kpi {
+    .panel{
+      background: var(--card);
       border: 1px solid var(--stroke);
       border-radius: var(--radius);
-      padding: 14px 14px 12px;
-      background: rgba(0, 0, 0, .18);
+      box-shadow: var(--shadow);
+      padding: 16px;
       backdrop-filter: blur(10px);
     }
+    .panelTitle{
+      display:flex; align-items:center; justify-content:space-between;
+      margin-bottom: 12px;
+    }
+    .panelTitle h2{ margin:0; font-size:16px; letter-spacing:.2px; color: rgba(255,255,255,.90); }
+    .muted{ color:var(--muted); }
 
-    .kpiLabel {
+    .kpis{
+      display:grid;
+      grid-template-columns: repeat(4, minmax(180px, 1fr));
+      gap:12px;
+    }
+    @media (max-width: 980px){ .kpis{ grid-template-columns: repeat(2, minmax(180px, 1fr)); } }
+    @media (max-width: 520px){ .kpis{ grid-template-columns: 1fr; } }
+
+    .kpi{
+      background: rgba(255,255,255,.06);
+      border: 1px solid var(--stroke);
+      border-radius: 16px;
+      padding: 14px 14px 12px;
+      min-height: 88px;
+    }
+    .kpi .label{ color: var(--muted); font-size: 13px; }
+    .kpi .value{ font-size: 22px; font-weight: 800; margin-top: 8px; }
+    .kpi .hint{ margin-top: 6px; color: var(--muted2); font-size: 12px; }
+
+    .chips{ display:flex; gap:10px; flex-wrap:wrap; margin-top: 12px; }
+    .chip{
+      padding: 8px 10px; border-radius: 999px;
+      background: rgba(255,255,255,.05);
+      border: 1px solid var(--stroke);
       color: var(--muted);
       font-size: 13px;
-      margin-bottom: 8px;
     }
 
-    .kpiValue {
-      font-size: 22px;
-      font-weight: 800;
-      letter-spacing: .2px;
-    }
-
-    .kpiHint {
-      color: var(--muted2);
-      font-size: 12px;
-      margin-top: 6px;
-      line-height: 1.3;
-    }
-
-    .chips {
-      margin-top: 10px;
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .chip {
-      border: 1px solid var(--stroke);
-      background: rgba(0, 0, 0, .16);
-      border-radius: 999px;
-      padding: 8px 10px;
-      font-size: 12.5px;
-      color: var(--muted);
-    }
-
-    select,
-    input {
-      background: rgba(0, 0, 0, .18);
-      color: var(--text);
+    select, input{
+      background: rgba(255,255,255,.06);
       border: 1px solid var(--stroke);
       border-radius: 12px;
+      color: var(--text);
       padding: 10px 12px;
       outline: none;
     }
+    input::placeholder{ color: rgba(255,255,255,.45); }
 
-    input::placeholder {
-      color: rgba(255, 255, 255, .35);
-    }
-
-    .actionsBox {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    .btnRow {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    button {
+    .btn{
       border: 1px solid var(--stroke);
-      background: rgba(0, 0, 0, .18);
+      background: rgba(255,255,255,.06);
       color: var(--text);
       border-radius: 14px;
-      padding: 10px 14px;
+      padding: 10px 12px;
       cursor: pointer;
+      transition: transform .05s ease, background .15s ease;
       font-weight: 700;
-      letter-spacing: .2px;
-      transition: transform .05s ease, background .15s ease, border-color .15s ease;
+    }
+    .btn:hover{ background: rgba(255,255,255,.09); }
+    .btn:active{ transform: translateY(1px); }
+    .btnPrimary{
+      background: linear-gradient(135deg, rgba(67,206,162,.95), rgba(24,90,157,.95));
+      border: 1px solid rgba(255,255,255,.12);
+    }
+    .btnPrimary:hover{ filter: brightness(1.03); }
+
+    .fieldRow{ display:flex; gap:10px; flex-wrap:wrap; margin-top: 10px; }
+    .fieldRow .grow{ flex: 1 1 240px; }
+
+    h3{
+      margin: 20px 0 10px;
+      font-size: 20px;
     }
 
-    button:hover {
-      background: rgba(255, 255, 255, .07);
-      border-color: rgba(255, 255, 255, .18);
-    }
-
-    button:active {
-      transform: translateY(1px);
-    }
-
-    .primary {
-      border: none;
-      background: linear-gradient(135deg, rgba(67, 206, 162, .95), rgba(24, 90, 157, .85));
-      box-shadow: 0 18px 40px rgba(0, 0, 0, .25);
-    }
-
-    .danger {
-      border: 1px solid rgba(255, 107, 107, .35);
-    }
-
-    .mutedText {
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.35;
-      margin-top: 4px;
-    }
-
-    .sectionTitle {
-      margin: 18px 0 10px;
-      font-size: 18px;
-      font-weight: 900;
-      letter-spacing: .2px;
-    }
-
-    .tableWrap {
-      border: 1px solid var(--stroke);
-      border-radius: var(--radius2);
-      background: linear-gradient(180deg, rgba(255, 255, 255, .06), rgba(255, 255, 255, .03));
-      box-shadow: var(--shadow);
-      padding: 10px;
-      overflow-x: auto;
-    }
-
-    table {
+    table{
+      width:100%;
       border-collapse: separate;
       border-spacing: 0;
-      width: 100%;
-      min-width: 820px;
+      overflow: hidden;
+      border-radius: var(--radius);
+      background: rgba(255,255,255,.05);
+      border: 1px solid var(--stroke);
+      box-shadow: var(--shadow);
     }
-
-    th,
-    td {
-      padding: 14px 12px;
-      text-align: left;
-      border-bottom: 1px solid rgba(255, 255, 255, .06);
-      white-space: nowrap;
-    }
-
-    th {
-      color: rgba(255, 255, 255, .7);
-      font-size: 12.5px;
+    thead th{
+      text-align:left;
+      padding: 14px 14px;
+      color: rgba(255,255,255,.72);
       font-weight: 800;
-      letter-spacing: .3px;
+      font-size: 13px;
+      background: rgba(0,0,0,.12);
+    }
+    tbody td{
+      padding: 14px 14px;
+      border-top: 1px solid rgba(255,255,255,.06);
+      color: rgba(255,255,255,.92);
+      vertical-align: middle;
     }
 
-    td {
-      font-size: 14px;
-      color: rgba(255, 255, 255, .88);
-    }
-
-    .rowCard {
-      background: rgba(0, 0, 0, .16);
-      border: 1px solid rgba(255, 255, 255, .08);
-      border-radius: var(--radius2);
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      border-radius: 999px;
+    .binId{ font-weight: 900; letter-spacing:.2px; }
+    .statusBadge{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
       padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.06);
       font-size: 12px;
       font-weight: 800;
-      border: 1px solid rgba(255, 255, 255, .08);
     }
+    .statusBadge.ok{ color: rgba(255,255,255,.92); }
+    .statusBadge.warn{ color: rgba(255,255,255,.92); }
+    .statusBadge.bad{ color: rgba(255,255,255,.92); }
+    .statusBadge .sDot{ width:9px; height:9px; border-radius:99px; }
+    .statusBadge.ok .sDot{ background: var(--good); }
+    .statusBadge.warn .sDot{ background: var(--warn); }
+    .statusBadge.bad .sDot{ background: var(--bad); }
 
-    .bOK {
-      background: rgba(46, 229, 157, .14);
-      color: rgba(210, 255, 238, .95);
-    }
-
-    .bWARN {
-      background: rgba(255, 204, 102, .14);
-      color: rgba(255, 235, 190, .95);
-    }
-
-    .bBAD {
-      background: rgba(255, 107, 107, .14);
-      color: rgba(255, 210, 210, .95);
-    }
-
-    .progressOuter {
-      flex: 1;
+    .barWrap{
+      width: 240px;
       height: 10px;
       border-radius: 999px;
-      background: rgba(255, 255, 255, .10);
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.10);
       overflow: hidden;
-      border: 1px solid rgba(255, 255, 255, .08);
+      margin-top: 8px;
     }
-
-    .progressInner {
-      height: 100%;
+    .bar{
+      height:100%;
+      width:0%;
+      background: linear-gradient(90deg, rgba(67,206,162,1), rgba(24,90,157,1));
       border-radius: 999px;
-      width: 0%;
-      background: rgba(46, 229, 157, .55);
+      transition: width .35s ease;
     }
 
-    .charts {
-      display: grid;
-      grid-template-columns: 1.2fr .8fr;
+    .insights{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
       gap: 16px;
-      margin-top: 16px;
+      margin-top: 14px;
     }
+    @media (max-width: 980px){ .insights{ grid-template-columns: 1fr; } }
 
-    .chartBox {
+    .chartBox{
+      background: var(--card);
       border: 1px solid var(--stroke);
-      border-radius: var(--radius2);
-      background: linear-gradient(180deg, rgba(255, 255, 255, .06), rgba(255, 255, 255, .03));
+      border-radius: var(--radius);
       box-shadow: var(--shadow);
-      padding: 14px;
-      height: 340px;
-      position: relative;
+      padding: 16px;
+      min-height: 360px;
+      backdrop-filter: blur(10px);
     }
-
-    .chartTitle {
-      margin: 0 0 10px;
-      font-size: 14px;
-      color: rgba(255, 255, 255, .88);
+    .chartTitle{
+      margin: 0 0 8px;
+      font-size: 16px;
       font-weight: 900;
+      color: rgba(255,255,255,.90);
     }
 
-    canvas {
-      max-width: 100%;
-    }
-
-    .toast {
-      position: fixed;
-      left: 50%;
-      bottom: 18px;
-      transform: translateX(-50%);
-      background: rgba(0, 0, 0, .65);
-      border: 1px solid rgba(255, 255, 255, .14);
+    .error{
+      margin-top: 10px;
       padding: 10px 12px;
-      border-radius: 999px;
-      color: rgba(255, 255, 255, .9);
-      font-weight: 700;
+      border-radius: 12px;
+      border: 1px solid rgba(251,113,133,.35);
+      background: rgba(251,113,133,.12);
+      color: rgba(255,255,255,.9);
+      display:none;
       font-size: 13px;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, .35);
-      display: none;
-      z-index: 999;
-    }
-
-    @media (max-width: 980px) {
-      .grid {
-        grid-template-columns: 1fr;
-      }
-
-      .kpiGrid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
-      .charts {
-        grid-template-columns: 1fr;
-      }
-
-      .chartBox {
-        height: 320px;
-      }
+      white-space: pre-wrap;
     }
   </style>
+
+  <!-- Chart.js (HTTPS, così su Render non viene bloccato) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 
 <body>
-  <div class="container">
-    <div class="topbar">
+  <div class="wrap">
+    <div class="top">
       <div class="brand">
-        <div class="logo"></div>
+        <div class="logo" aria-hidden="true"></div>
         <div>
           <h1>Sorti SmartBin Dashboard</h1>
-          <div class="subtitle">Vista branded Sorti: KPI (range selezionabile), stato cestini, grafici CO₂ e breakdown per materiale.</div>
+          <div class="sub">KPI (range selezionabile), stato cestini, grafici CO₂ e breakdown per materiale.</div>
         </div>
       </div>
-
-      <div class="pill" title="Aggiornamento live">
-        <span class="dot"></span>
-        <span style="font-weight:800; color: rgba(255,255,255,.85)">Live</span>
+      <div class="pill">
+        <div class="dot"></div>
+        <span>Live</span>
       </div>
     </div>
 
-    <div class="grid">
-      <!-- KPI -->
+    <div class="grid2">
       <div class="panel">
-        <div class="panelHeader">
-          <div class="panelTitle">KPI</div>
-          <div style="display:flex; align-items:center; gap:10px;">
-            <label class="mutedText" style="margin:0;">Range:</label>
+        <div class="panelTitle">
+          <h2>KPI</h2>
+          <div>
+            <label class="muted" style="font-size:13px;margin-right:8px;">Range:</label>
             <select id="rangeSelect">
               <option value="7">7 giorni</option>
               <option value="30" selected>30 giorni</option>
@@ -452,436 +282,383 @@
           </div>
         </div>
 
-        <div class="kpiGrid">
+        <div class="kpis">
           <div class="kpi">
-            <div class="kpiLabel">Peso raccolto (range)</div>
-            <div id="kpiWeightRange" class="kpiValue">—</div>
-            <div class="kpiHint">Somma dal report giornaliero</div>
+            <div class="label">Peso raccolto (range)</div>
+            <div id="kpiRangeWeight" class="value">—</div>
+            <div class="hint">Somma dal report giornaliero</div>
           </div>
-
           <div class="kpi">
-            <div class="kpiLabel">CO₂ risparmiata (range)</div>
-            <div id="kpiCo2Range" class="kpiValue">—</div>
-            <div class="kpiHint">Somma dal report giornaliero</div>
+            <div class="label">CO₂ risparmiata (range)</div>
+            <div id="kpiRangeCO2" class="value">—</div>
+            <div class="hint">Somma dal report giornaliero</div>
           </div>
-
           <div class="kpi">
-            <div class="kpiLabel">Peso raccolto (totale)</div>
-            <div id="kpiWeightTotal" class="kpiValue">—</div>
-            <div class="kpiHint">Storico completo</div>
+            <div class="label">Peso raccolto (totale)</div>
+            <div id="kpiTotalWeight" class="value">—</div>
+            <div class="hint">Storico completo</div>
           </div>
-
           <div class="kpi">
-            <div class="kpiLabel">CO₂ risparmiata (totale)</div>
-            <div id="kpiCo2Total" class="kpiValue">—</div>
-            <div class="kpiHint">Storico completo</div>
+            <div class="label">CO₂ risparmiata (totale)</div>
+            <div id="kpiTotalCO2" class="value">—</div>
+            <div class="hint">Storico completo</div>
           </div>
         </div>
 
         <div class="chips">
           <div class="chip">Ultimo aggiornamento: <span id="lastUpdate">—</span></div>
           <div class="chip">Cestini: <span id="binsCount">—</span></div>
+          <div class="chip">Chart.js: <span id="chartStatus">—</span></div>
         </div>
+
+        <div id="errBox" class="error"></div>
       </div>
 
-      <!-- Actions -->
       <div class="panel">
-        <div class="panelHeader">
-          <div class="panelTitle">Azioni protette (API Key)</div>
+        <div class="panelTitle">
+          <h2>Azioni protette (API Key)</h2>
         </div>
 
-        <div class="actionsBox">
-          <input id="apiKeyInput" type="password" placeholder="Incolla la tua X-API-Key (salvata nel browser)" />
-          <div class="btnRow">
-            <button class="primary" onclick="saveApiKey()">Salva API Key</button>
-            <button onclick="removeApiKey()">Rimuovi</button>
-          </div>
-
-          <div class="btnRow">
-            <button onclick="downloadEventsCSV()">Scarica eventi CSV</button>
-          </div>
-
-          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-            <div class="mutedText" style="margin:0;">Export giornaliero (giorni):</div>
-            <input id="dailyDays" type="number" value="30" min="1" max="365" style="width:120px;" />
-            <button onclick="downloadDailyCSV()">Scarica CSV</button>
-          </div>
-
-          <div class="mutedText">
-            I pulsanti “Segna svuotato” e gli export richiedono la chiave.
-            La dashboard e i grafici restano consultabili.
-          </div>
+        <div class="fieldRow">
+          <input id="apiKeyInput" class="grow" placeholder="Incolla la tua X-API-Key (salvata nel browser)" />
+          <button class="btn btnPrimary" id="saveKeyBtn">Salva API Key</button>
+          <button class="btn" id="removeKeyBtn">Rimuovi</button>
         </div>
+
+        <div class="fieldRow" style="margin-top:12px;">
+          <button class="btn" id="dlEventsBtn">Scarica eventi CSV</button>
+        </div>
+
+        <div class="fieldRow" style="margin-top:12px; align-items:center;">
+          <span class="muted" style="font-size:13px;">Export giornaliero (giorni):</span>
+          <input id="dailyDays" type="number" min="1" max="365" value="30" style="width:120px;">
+          <button class="btn" id="dlDailyBtn">Scarica CSV</button>
+        </div>
+
+        <p class="muted" style="margin-top:14px; font-size:13px;">
+          I pulsanti “Segna svuotato” e gli export richiedono la chiave.
+          La dashboard e i grafici restano consultabili.
+        </p>
       </div>
     </div>
 
-    <div class="sectionTitle">Cestini</div>
-    <div class="tableWrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Bin</th>
-            <th>Peso</th>
-            <th>Capacità</th>
-            <th>Riempimento</th>
-            <th>Ultimo update</th>
-            <th>Azioni</th>
-          </tr>
-        </thead>
-        <tbody id="binsBody"></tbody>
-      </table>
-    </div>
+    <h3>Cestini</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Bin</th>
+          <th>Peso</th>
+          <th>Capacità</th>
+          <th>Riempimento</th>
+          <th>Ultimo update</th>
+          <th>Azioni</th>
+        </tr>
+      </thead>
+      <tbody id="binsBody"></tbody>
+    </table>
 
-    <div class="sectionTitle">Insight</div>
-    <div class="charts">
+    <h3>Insight</h3>
+    <div class="insights">
       <div class="chartBox">
         <div class="chartTitle">Andamento CO₂ (range)</div>
-        <canvas id="co2LineChart"></canvas>
+        <canvas id="co2Line"></canvas>
       </div>
       <div class="chartBox">
         <div class="chartTitle">Breakdown materiali (storico totale)</div>
-        <canvas id="materialDonutChart"></canvas>
+        <canvas id="matPie"></canvas>
       </div>
     </div>
   </div>
 
-  <div id="toast" class="toast"></div>
-
   <script>
-    // =========================
-    // Helpers: UI + Fetch
-    // =========================
-    const API_KEY_STORAGE = "sorti_api_key";
+    // -----------------------------
+    // Helpers robusti (Postgres/SQLite)
+    // -----------------------------
+    const errBox = document.getElementById("errBox");
 
-    function toast(msg) {
-      const el = document.getElementById("toast");
-      el.textContent = msg;
-      el.style.display = "block";
-      clearTimeout(window.__toastTimer);
-      window.__toastTimer = setTimeout(() => el.style.display = "none", 2600);
+    function showErr(msg){
+      errBox.style.display = "block";
+      errBox.textContent = msg;
+    }
+    function clearErr(){
+      errBox.style.display = "none";
+      errBox.textContent = "";
     }
 
-    async function fetchJSON(url, opts) {
+    function toNum(v, fallback=0){
+      // gestisce number, string, Decimal->string
+      const n = Number(v);
+      return Number.isFinite(n) ? n : fallback;
+    }
+
+    function fmtWeight(g){
+      const n = toNum(g);
+      if (n >= 1000) return (n/1000).toFixed(n >= 10000 ? 0 : 1) + " kg";
+      return Math.round(n) + " g";
+    }
+
+    function fmtCO2(g){
+      const n = toNum(g);
+      if (n >= 1000) return (n/1000).toFixed(n >= 10000 ? 0 : 1) + " kg";
+      return Math.round(n) + " g";
+    }
+
+    function badgeForFill(fill){
+      const f = toNum(fill);
+      if (f >= 85) return {cls:"bad", label:"PIENO"};
+      if (f >= 60) return {cls:"warn", label:"QUASI PIENO"};
+      return {cls:"ok", label:"OK"};
+    }
+
+    // -----------------------------
+    // API Key storage
+    // -----------------------------
+    const apiKeyInput = document.getElementById("apiKeyInput");
+    const saveKeyBtn = document.getElementById("saveKeyBtn");
+    const removeKeyBtn = document.getElementById("removeKeyBtn");
+
+    const KEY_LS = "SORTI_API_KEY";
+    apiKeyInput.value = localStorage.getItem(KEY_LS) || "";
+
+    saveKeyBtn.onclick = () => {
+      localStorage.setItem(KEY_LS, apiKeyInput.value.trim());
+      alert("API Key salvata ✅");
+    };
+    removeKeyBtn.onclick = () => {
+      localStorage.removeItem(KEY_LS);
+      apiKeyInput.value = "";
+      alert("API Key rimossa ✅");
+    };
+
+    function getApiKey(){
+      return (localStorage.getItem(KEY_LS) || "").trim();
+    }
+
+    // -----------------------------
+    // Fetch
+    // -----------------------------
+    async function fetchJSON(url, opts){
       const res = await fetch(url, opts);
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok){
+        const t = await res.text();
+        throw new Error(`${url}\nHTTP ${res.status}\n${t}`);
+      }
       return await res.json();
     }
 
-    function getApiKey() {
-      return localStorage.getItem(API_KEY_STORAGE) || "";
-    }
-
-    function saveApiKey() {
-      const v = document.getElementById("apiKeyInput").value.trim();
-      if (!v) return toast("Inserisci una API key.");
-      localStorage.setItem(API_KEY_STORAGE, v);
-      toast("API key salvata ✅");
-    }
-
-    function removeApiKey() {
-      localStorage.removeItem(API_KEY_STORAGE);
-      document.getElementById("apiKeyInput").value = "";
-      toast("API key rimossa.");
-    }
-
-    function authHeaders() {
-      const k = getApiKey();
-      return k ? { "X-API-Key": k } : {};
-    }
-
-    // =========================
-    // Unit formatting (g → kg → t)
-    // =========================
-    const nf0 = new Intl.NumberFormat("it-IT", { maximumFractionDigits: 0 });
-    const nf1 = new Intl.NumberFormat("it-IT", { maximumFractionDigits: 1 });
-    const nf2 = new Intl.NumberFormat("it-IT", { maximumFractionDigits: 2 });
-
-    function formatMass(g) {
-      const v = Number(g || 0);
-      if (v >= 1_000_000) return nf2.format(v / 1_000_000) + " t";
-      if (v >= 1_000) return nf1.format(v / 1_000) + " kg";
-      return nf0.format(v) + " g";
-    }
-
-    function formatPercent(fill) {
-      const f = Number(fill || 0);
-      if (f > 0 && f < 1) return f.toFixed(1) + "%";
-      return Math.round(f) + "%";
-    }
-
-    function badgeForFill(fill) {
-      const f = Number(fill || 0);
-      if (f >= 85) return `<span class="badge bBAD">PIENO</span>`;
-      if (f >= 60) return `<span class="badge bWARN">QUASI PIENO</span>`;
-      return `<span class="badge bOK">OK</span>`;
-    }
-
-    function barStyle(fill) {
-      const f = Number(fill || 0);
-      const width = (f <= 0) ? 0 : Math.max(2, f); // min visivo 2% se >0
-      let bg = "rgba(46, 229, 157, .55)";
-      if (f >= 85) bg = "rgba(255, 107, 107, .60)";
-      else if (f >= 60) bg = "rgba(255, 204, 102, .60)";
-      return { width: width + "%", bg };
-    }
-
-    // =========================
-    // Charts
-    // =========================
-    let lineChart = null;
-    let donutChart = null;
-
-    function ensureLineChart() {
-      const ctx = document.getElementById("co2LineChart");
-      if (lineChart) return lineChart;
-
-      lineChart = new Chart(ctx, {
-        type: "line",
-        data: {
-          labels: [],
-          datasets: [{
-            label: "CO₂ risparmiata (g)",
-            data: [],
-            borderColor: "rgba(67, 206, 162, 0.95)",
-            backgroundColor: "rgba(67, 206, 162, 0.15)",
-            tension: 0.25,
-            fill: true,
-            pointRadius: 2,
-            pointHoverRadius: 4
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { labels: { color: "rgba(255,255,255,.75)" } },
-            tooltip: {
-              callbacks: {
-                label: (ctx) => " " + formatMass(ctx.parsed.y) + " CO₂"
-              }
-            }
-          },
-          scales: {
-            x: { ticks: { color: "rgba(255,255,255,.55)" }, grid: { color: "rgba(255,255,255,.06)" } },
-            y: { ticks: { color: "rgba(255,255,255,.55)" }, grid: { color: "rgba(255,255,255,.06)" } }
-          }
-        }
-      });
-
-      return lineChart;
-    }
-
-    function ensureDonutChart() {
-      const ctx = document.getElementById("materialDonutChart");
-      if (donutChart) return donutChart;
-
-      donutChart = new Chart(ctx, {
-        type: "doughnut",
-        data: {
-          labels: [],
-          datasets: [{
-            label: "Peso (g)",
-            data: [],
-            // palette fissa per evitare “torta nera”
-            backgroundColor: [
-              "rgba(67, 206, 162, 0.85)",
-              "rgba(24, 90, 157, 0.85)",
-              "rgba(255, 204, 102, 0.85)",
-              "rgba(255, 107, 107, 0.85)",
-              "rgba(153, 102, 255, 0.85)",
-              "rgba(54, 162, 235, 0.85)",
-              "rgba(255, 159, 64, 0.85)"
-            ],
-            borderColor: "rgba(255,255,255,.12)",
-            borderWidth: 1,
-            hoverOffset: 6
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { labels: { color: "rgba(255,255,255,.75)" } },
-            tooltip: {
-              callbacks: {
-                label: (ctx) => " " + ctx.label + ": " + formatMass(ctx.parsed)
-              }
-            }
-          },
-          cutout: "62%"
-        }
-      });
-
-      return donutChart;
-    }
-
-    // =========================
-    // CSV download (protetto)
-    // Nota: questi endpoint devono esistere nel main.py
-    // =========================
-    async function downloadBlob(url) {
-      const res = await fetch(url, { headers: authHeaders() });
-      if (!res.ok) throw new Error(await res.text());
+    // Download helper
+    async function downloadFile(url, filename, opts){
+      const res = await fetch(url, opts);
+      if (!res.ok){
+        const t = await res.text();
+        throw new Error(`${url}\nHTTP ${res.status}\n${t}`);
+      }
       const blob = await res.blob();
-
       const a = document.createElement("a");
-      const blobUrl = URL.createObjectURL(blob);
-      a.href = blobUrl;
-      a.download = "export.csv";
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
-      URL.revokeObjectURL(blobUrl);
+      URL.revokeObjectURL(a.href);
     }
 
-    async function downloadEventsCSV() {
-      try {
-        // endpoint tipico: /api/export/events.csv
-        await downloadBlob("/api/export/events.csv");
-        toast("Download eventi CSV ✅");
-      } catch (e) {
-        toast("Errore download eventi CSV (API key?)");
-        console.error(e);
-      }
-    }
+    // -----------------------------
+    // Charts init
+    // -----------------------------
+    const chartStatus = document.getElementById("chartStatus");
+    const hasChart = typeof Chart !== "undefined";
+    chartStatus.textContent = hasChart ? "OK" : "NON CARICATO";
 
-    async function downloadDailyCSV() {
-      try {
-        const days = Math.max(1, Math.min(365, parseInt(document.getElementById("dailyDays").value || "30", 10)));
-        // endpoint tipico: /api/export/daily.csv?days=30
-        await downloadBlob(`/api/export/daily.csv?days=${days}`);
-        toast("Download CSV giornaliero ✅");
-      } catch (e) {
-        toast("Errore download CSV (API key?)");
-        console.error(e);
-      }
-    }
+    let co2Chart = null;
+    let pieChart = null;
 
-    // =========================
-    // Actions: empty bin (protetto)
-    // =========================
-    async function emptyBin(binId) {
-      try {
-        await fetchJSON(`/api/bins/${encodeURIComponent(binId)}/empty`, {
-          method: "POST",
-          headers: { ...authHeaders() }
+    function ensureCharts(){
+      if (!hasChart) return;
+
+      const ctxLine = document.getElementById("co2Line");
+      const ctxPie = document.getElementById("matPie");
+
+      if (!co2Chart){
+        co2Chart = new Chart(ctxLine, {
+          type: "line",
+          data: { labels: [], datasets: [{ label:"CO₂ (g)", data: [], tension: 0.35 }] },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { labels: { color: "rgba(255,255,255,.75)" } } },
+            scales: {
+              x: { ticks: { color: "rgba(255,255,255,.65)" }, grid: { color: "rgba(255,255,255,.06)" } },
+              y: { ticks: { color: "rgba(255,255,255,.65)" }, grid: { color: "rgba(255,255,255,.06)" } }
+            }
+          }
         });
-        toast(`Cestino ${binId} svuotato ✅`);
-        await refresh();
-      } catch (e) {
-        toast("Errore: serve API key corretta.");
-        console.error(e);
+      }
+
+      if (!pieChart){
+        pieChart = new Chart(ctxPie, {
+          type: "doughnut",
+          data: { labels: [], datasets: [{ label:"CO₂ (g)", data: [] }] },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { labels: { color: "rgba(255,255,255,.75)" } }
+            }
+          }
+        });
       }
     }
 
-    // =========================
-    // Data refresh
-    // =========================
-    async function refresh() {
-      const rangeDays = parseInt(document.getElementById("rangeSelect").value, 10);
+    // -----------------------------
+    // UI update
+    // -----------------------------
+    const rangeSelect = document.getElementById("rangeSelect");
+    const kpiRangeWeight = document.getElementById("kpiRangeWeight");
+    const kpiRangeCO2 = document.getElementById("kpiRangeCO2");
+    const kpiTotalWeight = document.getElementById("kpiTotalWeight");
+    const kpiTotalCO2 = document.getElementById("kpiTotalCO2");
+    const lastUpdate = document.getElementById("lastUpdate");
+    const binsCount = document.getElementById("binsCount");
+    const binsBody = document.getElementById("binsBody");
 
-      // Totali
-      const totals = await fetchJSON("/api/stats/total");
-      document.getElementById("kpiWeightTotal").textContent = formatMass(totals.total_weight_g);
-      document.getElementById("kpiCo2Total").textContent = formatMass(totals.total_co2_saved_g);
-
-      // Daily range
-      const daily = await fetchJSON(`/api/stats/daily?days=${rangeDays}`);
-      let wRange = 0;
-      let cRange = 0;
-      const labels = [];
-      const co2Data = [];
-
-      for (const d of daily) {
-        wRange += Number(d.weight_g || 0);
-        cRange += Number(d.co2_saved_g || 0);
-        labels.push(d.day);
-        co2Data.push(Number(d.co2_saved_g || 0));
+    function sumDaily(daily){
+      // robust: accetta weight_g o total_weight_g (idem co2)
+      let w = 0, c = 0;
+      for (const r of daily){
+        w += toNum(r.weight_g ?? r.total_weight_g ?? 0);
+        c += toNum(r.co2_saved_g ?? r.total_co2_saved_g ?? 0);
       }
+      return { w, c };
+    }
 
-      document.getElementById("kpiWeightRange").textContent = formatMass(wRange);
-      document.getElementById("kpiCo2Range").textContent = formatMass(cRange);
+    function updateBinsTable(bins){
+      binsBody.innerHTML = "";
+      for (const b of bins){
+        const capacity = toNum(b.capacity_g);
+        const current = toNum(b.current_weight_g);
 
-      // Update chart line
-      const lc = ensureLineChart();
-      lc.data.labels = labels;
-      lc.data.datasets[0].data = co2Data;
-      lc.update();
+        // robust fill percent:
+        let fill = (b.fill_percent !== undefined && b.fill_percent !== null)
+          ? toNum(b.fill_percent)
+          : (capacity > 0 ? (current / capacity) * 100 : 0);
 
-      // By material (total)
-      const byMat = await fetchJSON("/api/stats/by_material");
-      const matLabels = byMat.map(x => x.material);
-      const matData = byMat.map(x => Number(x.weight_g || 0));
+        fill = Math.max(0, Math.min(fill, 100));
 
-      const dc = ensureDonutChart();
-      dc.data.labels = matLabels;
-      dc.data.datasets[0].data = matData;
-      dc.update();
-
-      // Bins table
-      const bins = await fetchJSON("/api/bins");
-      document.getElementById("binsCount").textContent = bins.length;
-
-      const body = document.getElementById("binsBody");
-      body.innerHTML = "";
-
-      let lastSeenBest = null;
-
-      for (const b of bins) {
-        const fill = Number(b.fill_percent ?? 0);
-        const st = barStyle(fill);
-
-        // prendo ultimo update più recente (semplice: string compare ISO)
-        if (b.last_seen && (!lastSeenBest || String(b.last_seen) > String(lastSeenBest))) {
-          lastSeenBest = b.last_seen;
-        }
+        const st = badgeForFill(fill);
 
         const tr = document.createElement("tr");
-        tr.className = "rowCard";
+
         tr.innerHTML = `
-          <td style="font-weight:900; font-size:16px;">${b.bin_id}</td>
-          <td>${formatMass(b.current_weight_g)}</td>
-          <td>${formatMass(b.capacity_g)}</td>
+          <td class="binId">${b.bin_id}</td>
+          <td>${fmtWeight(current)}</td>
+          <td>${fmtWeight(capacity)}</td>
           <td>
-            <div style="display:flex; align-items:center; gap:10px;">
-              <div style="min-width:64px; font-weight:900;">${formatPercent(fill)}</div>
-              ${badgeForFill(fill)}
-              <div class="progressOuter" title="Riempimento">
-                <div class="progressInner" style="width:${st.width}; background:${st.bg};"></div>
-              </div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <div style="font-weight:900;">${Math.round(fill)}%</div>
+              <span class="statusBadge ${st.cls}">
+                <span class="sDot"></span>${st.label}
+              </span>
             </div>
+            <div class="barWrap"><div class="bar" style="width:${fill.toFixed(2)}%"></div></div>
           </td>
-          <td style="color: rgba(255,255,255,.55)">${b.last_seen ?? "-"}</td>
+          <td class="muted">${b.last_seen ?? "-"}</td>
           <td>
-            <button class="danger" onclick="emptyBin('${b.bin_id}')">Segna svuotato</button>
+            <button class="btn" onclick="emptyBin('${b.bin_id.replace(/'/g,"\\'")}')">Segna svuotato</button>
           </td>
         `;
-        body.appendChild(tr);
+        binsBody.appendChild(tr);
       }
-
-      document.getElementById("lastUpdate").textContent = lastSeenBest ?? "—";
     }
 
-    // Init
-    (function init() {
-      // Precompila API key field se salvata
-      const saved = getApiKey();
-      if (saved) document.getElementById("apiKeyInput").value = saved;
+    async function refresh(){
+      clearErr();
+      ensureCharts();
 
-      // range change
-      document.getElementById("rangeSelect").addEventListener("change", () => refresh().catch(console.error));
+      const days = parseInt(rangeSelect.value, 10);
 
-      refresh().catch(err => {
-        console.error(err);
-        toast("Errore caricamento dati (server?)");
+      // totals (storico)
+      const totals = await fetchJSON("/api/stats/total");
+      const totalW = toNum(totals.total_weight_g ?? totals.weight_g ?? 0);
+      const totalC = toNum(totals.total_co2_saved_g ?? totals.co2_saved_g ?? 0);
+      kpiTotalWeight.textContent = fmtWeight(totalW);
+      kpiTotalCO2.textContent = fmtCO2(totalC);
+
+      // daily (range)
+      const daily = await fetchJSON(`/api/stats/daily?days=${days}`);
+      const s = sumDaily(daily);
+      kpiRangeWeight.textContent = fmtWeight(s.w);
+      kpiRangeCO2.textContent = fmtCO2(s.c);
+
+      // bins
+      const bins = await fetchJSON("/api/bins");
+      binsCount.textContent = String(bins.length);
+      updateBinsTable(bins);
+
+      // charts
+      if (hasChart && co2Chart){
+        const labels = daily.map(r => (r.day ?? r.date ?? "").toString());
+        const values = daily.map(r => toNum(r.co2_saved_g ?? r.total_co2_saved_g ?? 0));
+        co2Chart.data.labels = labels;
+        co2Chart.data.datasets[0].data = values;
+        co2Chart.update();
+      }
+
+      const byMat = await fetchJSON("/api/stats/by_material");
+      if (hasChart && pieChart){
+        pieChart.data.labels = byMat.map(r => (r.material ?? "—").toString());
+        pieChart.data.datasets[0].data = byMat.map(r => toNum(r.co2_saved_g ?? r.total_co2_saved_g ?? 0));
+        pieChart.update();
+      }
+
+      lastUpdate.textContent = new Date().toLocaleString();
+    }
+
+    // Protected actions
+    window.emptyBin = async function(binId){
+      const key = getApiKey();
+      if (!key) return alert("Inserisci e salva prima la tua API Key.");
+      await fetchJSON(`/api/bins/${encodeURIComponent(binId)}/empty`, {
+        method: "POST",
+        headers: { "X-API-Key": key }
       });
+      await refresh();
+    };
 
-      setInterval(() => refresh().catch(console.error), 4000);
-    })();
+    const dlEventsBtn = document.getElementById("dlEventsBtn");
+    const dlDailyBtn = document.getElementById("dlDailyBtn");
+    const dailyDays = document.getElementById("dailyDays");
+
+    dlEventsBtn.onclick = async () => {
+      try{
+        const key = getApiKey();
+        if (!key) return alert("Inserisci e salva prima la tua API Key.");
+        await downloadFile("/api/export/events.csv", "sorti_events.csv", {
+          headers: { "X-API-Key": key }
+        });
+      }catch(e){ showErr(String(e)); }
+    };
+
+    dlDailyBtn.onclick = async () => {
+      try{
+        const key = getApiKey();
+        if (!key) return alert("Inserisci e salva prima la tua API Key.");
+        const d = Math.max(1, Math.min(parseInt(dailyDays.value || "30", 10), 365));
+        await downloadFile(`/api/export/daily.csv?days=${d}`, `sorti_daily_${d}d.csv`, {
+          headers: { "X-API-Key": key }
+        });
+      }catch(e){ showErr(String(e)); }
+    };
+
+    // loop
+    rangeSelect.addEventListener("change", () => refresh().catch(e => showErr(String(e))));
+
+    refresh().catch(e => showErr(String(e)));
+    setInterval(() => refresh().catch(e => showErr(String(e))), 4500);
   </script>
 </body>
-
 </html>
+
 
 
 
