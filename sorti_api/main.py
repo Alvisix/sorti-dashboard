@@ -1,13 +1,13 @@
 from fastapi import FastAPI, HTTPException, Header
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone
 import json
 import os
+from pathlib import Path
 import csv
 import io
-from pathlib import Path
 
 from .db import init_db, get_conn
 
@@ -58,14 +58,16 @@ class BinConfigIn(BaseModel):
 
 app = FastAPI(title="Sorti SmartBin Tracker")
 
+
 # =========================
 # Sicurezza: API KEY
 # =========================
+# Header richiesto per endpoint protetti:
+#   X-API-Key: <chiave>
 API_KEY = os.getenv("SORTI_API_KEY", "SORTI-DEMO-KEY-BINARO-2026-01")
 
 
 def require_api_key(x_api_key: str | None) -> None:
-    """Blocca la richiesta se la chiave non è corretta."""
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -85,6 +87,25 @@ if STATIC_DIR.exists():
 @app.on_event("startup")
 def _startup():
     init_db()
+
+
+# =========================
+# PWA: Service Worker dalla ROOT (/sw.js)
+# =========================
+# IMPORTANTISSIMO: servire sw.js da "/" dà scope root e rende il sito installabile.
+@app.get("/sw.js")
+def service_worker():
+    sw_path = STATIC_DIR / "sw.js"
+    if not sw_path.exists():
+        raise HTTPException(status_code=404, detail="sw.js non trovato in /static")
+    return FileResponse(
+        sw_path,
+        media_type="application/javascript",
+        headers={
+            "Cache-Control": "no-cache",
+            "Service-Worker-Allowed": "/",  # scope root
+        },
+    )
 
 
 # =========================
@@ -152,17 +173,20 @@ def add_event(
     ts = datetime.now(timezone.utc).isoformat()
 
     with get_conn() as conn:
+        # crea bin se non esiste (default capacity 10000g)
         conn.execute("""
             INSERT INTO bins(bin_id, capacity_g, current_weight_g, last_seen)
             VALUES(?, 10000, 0, ?)
             ON CONFLICT(bin_id) DO UPDATE SET last_seen=excluded.last_seen
         """, (ev.bin_id, ts))
 
+        # salva evento
         conn.execute("""
             INSERT INTO events(ts, bin_id, material, weight_g, co2_saved_g)
             VALUES(?, ?, ?, ?, ?)
         """, (ts, ev.bin_id, material, float(ev.weight_g), co2_saved_g))
 
+        # aggiorna peso bin
         conn.execute("""
             UPDATE bins
             SET current_weight_g = current_weight_g + ?, last_seen=?
@@ -245,7 +269,7 @@ def stats_total():
 
 
 # =========================
-# Upgrade 3: report per materiale (LIBERO)
+# Stats per materiale (LIBERO)
 # =========================
 
 @app.get("/api/stats/by_material")
@@ -272,7 +296,7 @@ def stats_by_material():
 
 
 # =========================
-# Upgrade 3: report giornaliero (LIBERO)
+# Stats giornaliero (LIBERO)
 # =========================
 
 @app.get("/api/stats/daily")
@@ -283,8 +307,8 @@ def stats_daily(days: int = 30):
         rows = conn.execute("""
             SELECT
               substr(ts, 1, 10) AS day,
-              COALESCE(SUM(weight_g), 0) AS weight_g,
-              COALESCE(SUM(co2_saved_g), 0) AS co2_saved_g
+              COALESCE(SUM(weight_g), 0) AS total_weight_g,
+              COALESCE(SUM(co2_saved_g), 0) AS total_co2_saved_g
             FROM events
             WHERE ts >= datetime('now', '-' || ? || ' days')
             GROUP BY day
@@ -294,17 +318,15 @@ def stats_daily(days: int = 30):
     return [
         {
             "day": r["day"],
-            "weight_g": float(r["weight_g"]),
-            "co2_saved_g": float(r["co2_saved_g"]),
+            "total_weight_g": float(r["total_weight_g"]),
+            "total_co2_saved_g": float(r["total_co2_saved_g"]),
         }
         for r in rows
     ]
 
 
 # =========================
-# Export CSV (PROTETTO) - compatibile Excel IT
-#   - separatore: ;
-#   - BOM UTF-8: per Excel
+# Export CSV eventi (PROTETTO)
 # =========================
 
 @app.get("/api/export/events.csv")
@@ -318,37 +340,23 @@ def export_events_csv(x_api_key: str | None = Header(default=None)):
             ORDER BY ts ASC
         """).fetchall()
 
-    def gen():
-        buf = io.StringIO()
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["ts", "bin_id", "material", "weight_g", "co2_saved_g"])
+    for r in rows:
+        w.writerow([r["ts"], r["bin_id"], r["material"], float(r["weight_g"]), float(r["co2_saved_g"])])
 
-        # BOM UTF-8 (Excel)
-        yield "\ufeff"
-
-        w = csv.writer(buf, delimiter=";")
-
-        w.writerow(["ts", "bin_id", "material", "weight_g", "co2_saved_g"])
-        yield buf.getvalue()
-        buf.seek(0)
-        buf.truncate(0)
-
-        for r in rows:
-            w.writerow([
-                r["ts"],
-                r["bin_id"],
-                r["material"],
-                float(r["weight_g"]),
-                float(r["co2_saved_g"]),
-            ])
-            yield buf.getvalue()
-            buf.seek(0)
-            buf.truncate(0)
-
-    return StreamingResponse(
-        gen(),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=sorti_events.csv"},
+    csv_bytes = buf.getvalue().encode("utf-8")
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="events.csv"'},
     )
 
+
+# =========================
+# Export CSV giornaliero (PROTETTO)
+# =========================
 
 @app.get("/api/export/daily.csv")
 def export_daily_csv(days: int = 30, x_api_key: str | None = Header(default=None)):
@@ -367,33 +375,17 @@ def export_daily_csv(days: int = 30, x_api_key: str | None = Header(default=None
             ORDER BY day ASC
         """, (days,)).fetchall()
 
-    def gen():
-        buf = io.StringIO()
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["day", "total_weight_g", "total_co2_saved_g"])
+    for r in rows:
+        w.writerow([r["day"], float(r["total_weight_g"]), float(r["total_co2_saved_g"])])
 
-        # BOM UTF-8 (Excel)
-        yield "\ufeff"
-
-        w = csv.writer(buf, delimiter=";")
-
-        w.writerow(["day", "total_weight_g", "total_co2_saved_g"])
-        yield buf.getvalue()
-        buf.seek(0)
-        buf.truncate(0)
-
-        for r in rows:
-            w.writerow([
-                r["day"],
-                float(r["total_weight_g"]),
-                float(r["total_co2_saved_g"]),
-            ])
-            yield buf.getvalue()
-            buf.seek(0)
-            buf.truncate(0)
-
-    return StreamingResponse(
-        gen(),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=sorti_daily_{days}d.csv"},
+    csv_bytes = buf.getvalue().encode("utf-8")
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="daily_{days}d.csv"'},
     )
 
 
@@ -425,3 +417,4 @@ def empty_bin(
         )
 
     return {"ok": True, "bin_id": bin_id, "emptied_at": now}
+
