@@ -1,15 +1,3 @@
-"""
-db.py - DB layer per Sorti Dashboard
-
-- In locale: SQLite (sorti.db)
-- Su Render: Postgres se DATABASE_URL è presente
-
-Compatibilità:
-- Il tuo main.py usa placeholder "?" (stile SQLite)
-- Postgres usa "%s"
-  => qui traduciamo automaticamente "?" -> "%s" quando siamo su Postgres.
-"""
-
 from __future__ import annotations
 
 import os
@@ -24,15 +12,24 @@ from typing import Any, Optional, Sequence
 SQLITE_PATH = Path(__file__).resolve().parent.parent / "sorti.db"
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
-DB_BACKEND = "postgres" if DATABASE_URL else "sqlite"
+USE_POSTGRES = bool(DATABASE_URL)
 
 
-def _translate_sql_for_postgres(sql: str) -> str:
-    s = sql.replace("?", "%s")
+def _qmarks_to_psycopg(sql: str) -> str:
+    """
+    Converte placeholder SQLite (?) in placeholder Postgres (%s)
+    """
+    return sql.replace("?", "%s")
 
-    # Fix mirato per stats_daily (SQLite datetime('now'...) -> Postgres NOW() - interval)
-    if "datetime('now'" in sql and "FROM events" in sql and "substr(ts" in sql:
-        s = """
+
+def _rewrite_daily_sql(sql: str) -> str:
+    """
+    Riscrive SOLO la query di stats_daily (che su SQLite usa datetime('now'...))
+    in sintassi Postgres.
+    """
+    # Pattern semplice: riconosco la query perché contiene questi pezzi
+    if "substr(ts, 1, 10) AS day" in sql and "datetime('now'" in sql:
+        return """
             SELECT
               to_char(ts::timestamptz, 'YYYY-MM-DD') AS day,
               COALESCE(SUM(weight_g), 0) AS weight_g,
@@ -42,32 +39,38 @@ def _translate_sql_for_postgres(sql: str) -> str:
             GROUP BY to_char(ts::timestamptz, 'YYYY-MM-DD')
             ORDER BY day ASC
         """.strip()
+    return sql
 
-    return s
 
+class DBConn:
+    """
+    Wrapper per avere:
+    - with get_conn() as conn:
+        conn.execute(...)
+    sia su SQLite che su Postgres.
+    """
 
-class _DBConn:
-    def __init__(self, backend: str, raw_conn: Any):
+    def __init__(self, backend: str, raw: Any):
         self.backend = backend
-        self.raw_conn = raw_conn
+        self.raw = raw
         self._closed = False
 
-    def __enter__(self) -> "_DBConn":
+    def __enter__(self) -> "DBConn":
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
         try:
             if exc_type is None:
-                self.raw_conn.commit()
+                self.raw.commit()
             else:
-                self.raw_conn.rollback()
+                self.raw.rollback()
         finally:
             self.close()
 
     def close(self) -> None:
         if not self._closed:
             try:
-                self.raw_conn.close()
+                self.raw.close()
             finally:
                 self._closed = True
 
@@ -76,32 +79,40 @@ class _DBConn:
             params = []
 
         if self.backend == "sqlite":
-            return self.raw_conn.execute(sql, params)
+            return self.raw.execute(sql, params)
 
         # Postgres (psycopg v3)
-        sql_pg = _translate_sql_for_postgres(sql)
-        cur = self.raw_conn.cursor()
+        sql_pg = _rewrite_daily_sql(_qmarks_to_psycopg(sql))
+        cur = self.raw.cursor()
         cur.execute(sql_pg, params)
         return cur
 
 
-def get_conn() -> _DBConn:
-    if DB_BACKEND == "sqlite":
+def get_conn() -> DBConn:
+    """
+    Se DATABASE_URL è presente -> Postgres (Render)
+    Altrimenti -> SQLite (locale)
+    """
+    if not USE_POSTGRES:
         conn = sqlite3.connect(SQLITE_PATH)
         conn.row_factory = sqlite3.Row
-        return _DBConn("sqlite", conn)
+        return DBConn("sqlite", conn)
 
-    # Postgres via psycopg v3
+    # psycopg v3
     import psycopg
     from psycopg.rows import dict_row
 
     conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-    return _DBConn("postgres", conn)
+    return DBConn("postgres", conn)
 
 
 def init_db() -> None:
+    """
+    Crea tabelle se non esistono.
+    """
     with get_conn() as conn:
-        if DB_BACKEND == "sqlite":
+        if not USE_POSTGRES:
+            # SQLite
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS bins (
                     bin_id TEXT PRIMARY KEY,
@@ -122,6 +133,7 @@ def init_db() -> None:
                 )
             """)
         else:
+            # Postgres
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS bins (
                     bin_id TEXT PRIMARY KEY,
