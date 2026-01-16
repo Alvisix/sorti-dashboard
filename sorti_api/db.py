@@ -27,7 +27,6 @@ def _rewrite_daily_sql(sql: str) -> str:
     Riscrive SOLO la query di stats_daily (che su SQLite usa datetime('now'...))
     in sintassi Postgres.
     """
-    # Pattern semplice: riconosco la query perché contiene questi pezzi
     if "substr(ts, 1, 10) AS day" in sql and "datetime('now'" in sql:
         return """
             SELECT
@@ -98,7 +97,6 @@ def get_conn() -> DBConn:
         conn.row_factory = sqlite3.Row
         return DBConn("sqlite", conn)
 
-    # psycopg v3
     import psycopg
     from psycopg.rows import dict_row
 
@@ -106,12 +104,21 @@ def get_conn() -> DBConn:
     return DBConn("postgres", conn)
 
 
+def _sqlite_has_column(conn: DBConn, table: str, col: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    for r in rows:
+        # sqlite Row: r["name"]
+        if (r["name"] if isinstance(r, sqlite3.Row) else r[1]) == col:
+            return True
+    return False
+
+
 def init_db() -> None:
     """
-    Crea tabelle se non esistono.
+    Crea tabelle se non esistono e applica migrazioni leggere (event_id).
     """
     with get_conn() as conn:
-        if not USE_POSTGRES:
+        if conn.backend == "sqlite":
             # SQLite
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS bins (
@@ -129,9 +136,22 @@ def init_db() -> None:
                     material TEXT NOT NULL,
                     weight_g REAL NOT NULL,
                     co2_saved_g REAL NOT NULL,
+                    event_id TEXT,
                     FOREIGN KEY(bin_id) REFERENCES bins(bin_id)
                 )
             """)
+
+            # Migrazione: se events esisteva senza event_id, aggiungo colonna
+            if not _sqlite_has_column(conn, "events", "event_id"):
+                conn.execute("ALTER TABLE events ADD COLUMN event_id TEXT")
+
+            # Unique index (idempotenza) - parziale: solo se event_id non NULL
+            conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_events_event_id
+                ON events(event_id)
+                WHERE event_id IS NOT NULL
+            """)
+
         else:
             # Postgres
             conn.execute("""
@@ -149,7 +169,20 @@ def init_db() -> None:
                     bin_id TEXT NOT NULL REFERENCES bins(bin_id),
                     material TEXT NOT NULL,
                     weight_g DOUBLE PRECISION NOT NULL,
-                    co2_saved_g DOUBLE PRECISION NOT NULL
+                    co2_saved_g DOUBLE PRECISION NOT NULL,
+                    event_id TEXT
                 )
             """)
+
+            # Migrazione: aggiungi colonna se manca
+            conn.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS event_id TEXT")
+
+            # Unique index parziale su Postgres (idempotenza)
+            conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_events_event_id
+                ON events(event_id)
+                WHERE event_id IS NOT NULL
+            """)
+
+
 
