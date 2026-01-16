@@ -239,7 +239,7 @@
         <div class="logo" aria-hidden="true"></div>
         <div>
           <h1>Sorti SmartBin Dashboard</h1>
-          <div class="sub">Ingest Raspberry-ready + log eventi + gestione capacità (kg).</div>
+          <div class="sub">Step 6: refresh con singola chiamata <code>/api/dashboard</code>.</div>
         </div>
       </div>
       <div class="pill"><span class="dot"></span><span id="liveText">Live</span></div>
@@ -352,7 +352,7 @@
     <div class="card" style="margin-top:16px">
       <div class="cardHeader">
         <div class="title">Cestini</div>
-        <div class="small muted">/api/bins</div>
+        <div class="small muted">dati da /api/dashboard</div>
       </div>
 
       <table>
@@ -374,7 +374,7 @@
     <div class="card" style="margin-top:16px">
       <div class="cardHeader">
         <div class="title">Ultimi eventi (admin)</div>
-        <div class="small muted">/api/events/recent</div>
+        <div class="small muted">inclusi solo se X-API-Key valida</div>
       </div>
 
       <div id="eventsEmpty" class="emptyState" style="display:none"></div>
@@ -399,7 +399,7 @@
       <div class="card">
         <div class="cardHeader">
           <div class="title">Andamento CO₂ (range)</div>
-          <div class="small muted">/api/stats/daily</div>
+          <div class="small muted">daily da /api/dashboard</div>
         </div>
         <div class="canvasWrap"><canvas id="co2Line"></canvas></div>
         <div id="lineEmpty" class="emptyState" style="display:none">Nessun dato nel range selezionato.</div>
@@ -408,7 +408,7 @@
       <div class="card">
         <div class="cardHeader">
           <div class="title">Breakdown materiali (peso totale)</div>
-          <div class="small muted">/api/stats/by_material</div>
+          <div class="small muted">by_material da /api/dashboard</div>
         </div>
         <div class="canvasWrap"><canvas id="matPie"></canvas></div>
         <div id="pieEmpty" class="emptyState" style="display:none">Nessun dato materiali (ancora nessun evento).</div>
@@ -461,12 +461,12 @@
       return d.toLocaleString();
     }
 
-    // Step 5: "tempo umano"
+    // tempo umano
     function timeAgo(iso){
       const d = isoToDate(iso);
       if (!d) return "—";
       const now = new Date();
-      let diff = Math.floor((now - d) / 1000); // sec
+      let diff = Math.floor((now - d) / 1000);
       if (!isFinite(diff)) return "—";
       if (diff < 0) diff = 0;
 
@@ -547,7 +547,7 @@
       URL.revokeObjectURL(a.href);
     }
 
-    // Step 4: modifica capacità (kg) per bin
+    // modifica capacità (kg) per bin
     async function setCapacityKg(binId, currentCapacityG){
       try{
         if (!adminKey()) return alert("Manca Admin key (X-API-Key).");
@@ -578,6 +578,24 @@
       }
     }
     window.setCapacityKg = setCapacityKg;
+
+    // Protected action: empty bin
+    async function emptyBin(binId){
+      try{
+        if (!adminKey()) return alert("Manca Admin key (X-API-Key).");
+        const ok = confirm(`Confermi svuotamento ${binId}?\n(Azzera solo il peso bin, non cancella eventi)`);
+        if (!ok) return;
+
+        await fetchJSON(`/api/bins/${encodeURIComponent(binId)}/empty`, {
+          method:"POST",
+          headers: { "X-API-Key": adminKey() }
+        });
+        await refresh();
+      }catch(e){
+        alert("Errore svuotamento:\n\n" + (e?.message || String(e)));
+      }
+    }
+    window.emptyBin = emptyBin;
 
     // Charts
     Chart.defaults.color = "rgba(255,255,255,.82)";
@@ -628,6 +646,18 @@
       }
     });
 
+    // ✅ Step 6: un solo fetch
+    async function fetchDashboard(days){
+      const d = Math.max(1, Math.min(365, Number(days || 30)));
+      const url = `/api/dashboard?days=${encodeURIComponent(d)}&events_limit=20`;
+
+      const headers = {};
+      // Se ho admin key, la mando: così ottengo recent_events
+      if (adminKey()) headers["X-API-Key"] = adminKey();
+
+      return await fetchJSON(url, { headers });
+    }
+
     async function refresh(){
       if (refreshing) return;
       refreshing = true;
@@ -636,13 +666,14 @@
         clearError();
         const days = Number($("rangeSel").value || 30);
 
+        const dash = await fetchDashboard(days);
+
         // totals
-        const totals = await fetchJSON("/api/stats/total");
-        $("kpiTotalWeight").textContent = formatWeight(totals.total_weight_g);
-        $("kpiTotalCO2").textContent = formatCO2(totals.total_co2_saved_g);
+        $("kpiTotalWeight").textContent = formatWeight(dash?.totals?.total_weight_g);
+        $("kpiTotalCO2").textContent = formatCO2(dash?.totals?.total_co2_saved_g);
 
         // bins
-        const bins = await fetchJSON("/api/bins");
+        const bins = dash?.bins || [];
         $("binsCount").textContent = bins.length.toString();
 
         const binsSig = bins.map(b =>
@@ -686,7 +717,7 @@
         }
 
         // daily
-        const daily = await fetchJSON(`/api/stats/daily?days=${days}`);
+        const daily = dash?.daily || [];
         const rangeW = daily.reduce((s,r)=>s+Number(r.weight_g||0), 0);
         const rangeC = daily.reduce((s,r)=>s+Number(r.co2_saved_g||0), 0);
 
@@ -701,7 +732,7 @@
         lineChart.update();
 
         // by material
-        const mats = await fetchJSON("/api/stats/by_material");
+        const mats = dash?.by_material || [];
         const hasPieData = mats.some(r => Number(r.weight_g||0) > 0);
         $("pieEmpty").style.display = hasPieData ? "none" : "block";
 
@@ -709,9 +740,12 @@
         pieChart.data.datasets[0].data = mats.map(r=>Number(r.weight_g||0));
         pieChart.update();
 
-        // recent events (admin) - anti flicker + time ago
+        // recent events: arrivano solo se admin key valida
         const eventsBody = $("eventsBody");
         const eventsEmpty = $("eventsEmpty");
+
+        const isAdmin = !!dash?.is_admin;
+        const events = dash?.recent_events || [];
 
         if (!adminKey()){
           const msg = "🔒 Inserisci e salva la Admin key per vedere gli ultimi eventi (log).";
@@ -721,82 +755,59 @@
             eventsEmpty.style.display = "block";
             eventsEmpty.textContent = msg;
           }
+        } else if (!isAdmin) {
+          const msg = "❌ Admin key non valida (401). Controlla e salva di nuovo.";
+          if (lastEventsSig !== "BADADMIN"){
+            lastEventsSig = "BADADMIN";
+            eventsBody.innerHTML = "";
+            eventsEmpty.style.display = "block";
+            eventsEmpty.textContent = msg;
+          }
         } else {
-          try{
-            const events = await fetchJSON("/api/events/recent?limit=20", {
-              headers: { "X-API-Key": adminKey() }
-            });
+          const eventsSig = (events || []).map(e =>
+            `${e.ts||""}|${e.bin_id||""}|${e.material||""}|${Number(e.weight_g||0)}|${Number(e.co2_saved_g||0)}|${e.event_id||""}`
+          ).join(";;");
 
-            const eventsSig = (events || []).map(e =>
-              `${e.ts||""}|${e.bin_id||""}|${e.material||""}|${Number(e.weight_g||0)}|${Number(e.co2_saved_g||0)}|${e.event_id||""}`
-            ).join(";;");
+          if (eventsSig !== lastEventsSig){
+            lastEventsSig = eventsSig;
 
-            if (eventsSig !== lastEventsSig){
-              lastEventsSig = eventsSig;
-
-              if (!events || events.length === 0){
-                eventsBody.innerHTML = "";
-                eventsEmpty.style.display = "block";
-                eventsEmpty.textContent = "Nessun evento registrato (ancora).";
-              } else {
-                eventsEmpty.style.display = "none";
-                eventsEmpty.textContent = "";
-
-                const rowsHTML = events.map(e => {
-                  const whenHuman = timeAgo(e.ts);
-                  const whenTitle = isoToNice(e.ts);
-                  return `
-                    <tr>
-                      <td class="muted" title="${whenTitle}">${whenHuman}</td>
-                      <td><b>${e.bin_id}</b></td>
-                      <td>${e.material}</td>
-                      <td>${formatWeight(e.weight_g)}</td>
-                      <td>${formatCO2(e.co2_saved_g)}</td>
-                      <td class="mono" style="text-align:right" title="${e.event_id || ""}">${shortId(e.event_id)}</td>
-                    </tr>
-                  `;
-                }).join("");
-
-                eventsBody.innerHTML = rowsHTML;
-              }
-            }
-          } catch (err){
-            const msg = "Errore nel caricare gli ultimi eventi (controlla Admin key).\n\n" + (err?.message || String(err));
-            const sig = "ERR:" + msg;
-            if (lastEventsSig !== sig){
-              lastEventsSig = sig;
+            if (!events || events.length === 0){
               eventsBody.innerHTML = "";
               eventsEmpty.style.display = "block";
-              eventsEmpty.textContent = msg;
+              eventsEmpty.textContent = "Nessun evento registrato (ancora).";
+            } else {
+              eventsEmpty.style.display = "none";
+              eventsEmpty.textContent = "";
+
+              const rowsHTML = events.map(e => {
+                const whenHuman = timeAgo(e.ts);
+                const whenTitle = isoToNice(e.ts);
+                return `
+                  <tr>
+                    <td class="muted" title="${whenTitle}">${whenHuman}</td>
+                    <td><b>${e.bin_id}</b></td>
+                    <td>${e.material}</td>
+                    <td>${formatWeight(e.weight_g)}</td>
+                    <td>${formatCO2(e.co2_saved_g)}</td>
+                    <td class="mono" style="text-align:right" title="${e.event_id || ""}">${shortId(e.event_id)}</td>
+                  </tr>
+                `;
+              }).join("");
+
+              eventsBody.innerHTML = rowsHTML;
             }
           }
         }
 
         $("lastUpdated").textContent = new Date().toLocaleString();
+      } catch (e){
+        showError(e?.message || String(e));
       } finally {
         refreshing = false;
       }
     }
 
-    // Protected actions
-    async function emptyBin(binId){
-      try{
-        if (!adminKey()) return alert("Manca Admin key (X-API-Key).");
-        const ok = confirm(`Confermi svuotamento ${binId}?\n(Azzera solo il peso bin, non cancella eventi)`);
-        if (!ok) return;
-
-        await fetchJSON(`/api/bins/${encodeURIComponent(binId)}/empty`, {
-          method:"POST",
-          headers: { "X-API-Key": adminKey() }
-        });
-        await refresh();
-      }catch(e){
-        alert("Errore svuotamento:\n\n" + (e?.message || String(e)));
-      }
-    }
-    window.emptyBin = emptyBin;
-
-    // Simulator event
+    // Simulator event (continua ad usare POST /api/event)
     $("btnSimEvent").onclick = async () => {
       try{
         if (!ingestKey()) return alert("Manca Ingest key (X-Ingest-Key).");
@@ -855,13 +866,15 @@
       }
     };
 
-    $("rangeSel").onchange = () => refresh().catch(e => showError(e?.message || String(e)));
+    $("rangeSel").onchange = () => refresh();
 
-    refresh().catch(e => showError(e?.message || String(e)));
-    setInterval(() => refresh().catch(e => showError(e?.message || String(e))), 5000);
+    refresh();
+    setInterval(() => refresh(), 5000);
   </script>
 </body>
 </html>
+
+
 
 
 
