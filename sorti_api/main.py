@@ -29,30 +29,25 @@ def load_factors() -> dict:
 
 
 # =========================
-# Material aliases (Step 2)
+# Material aliases
 # =========================
 MATERIAL_ALIASES = {
-    # plastica
     "plastic": "plastica",
     "plastico": "plastica",
     "pet": "plastica",
     "bottiglia_plastica": "plastica",
     "bottle_plastic": "plastica",
-    # carta
     "paper": "carta",
     "cartone": "carta",
     "cardboard": "carta",
-    # vetro
     "glass": "vetro",
     "bottiglia_vetro": "vetro",
-    # metallo
     "metal": "metallo",
     "alu": "metallo",
     "alluminio": "metallo",
     "acciaio": "metallo",
     "lattina": "metallo",
     "can": "metallo",
-    # organico
     "organic": "organico",
     "umido": "organico",
 }
@@ -72,11 +67,7 @@ class EventIn(BaseModel):
     bin_id: str = Field(..., examples=["SORTI_001"])
     material: str = Field(..., examples=["plastica"])
     weight_g: float = Field(..., gt=0, examples=[18])
-    # Step 2: idempotenza - meglio se il Raspberry lo manda sempre (UUID)
-    event_id: str | None = Field(
-        default=None,
-        examples=["2f9c0a7e-2d3c-4c21-9d2c-45cf6c2b2c3e"]
-    )
+    event_id: str | None = Field(default=None, examples=["2f9c0a7e-2d3c-4c21-9d2c-45cf6c2b2c3e"])
 
 
 class BinConfigIn(BaseModel):
@@ -104,6 +95,10 @@ def require_admin_key(x_api_key: str | None) -> None:
 def require_ingest_key(x_ingest_key: str | None) -> None:
     if x_ingest_key != INGEST_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized (ingest)")
+
+
+def is_admin_key_valid(x_api_key: str | None) -> bool:
+    return x_api_key == ADMIN_KEY
 
 
 # =========================
@@ -140,7 +135,7 @@ def home():
 
 
 # =========================
-# Healthcheck (utile per Render)
+# Healthcheck
 # =========================
 
 @app.get("/health")
@@ -213,7 +208,7 @@ def set_bin_config(
 
 
 # =========================
-# API: aggiungi evento (INGEST) - Step 2
+# API: aggiungi evento (INGEST)
 # =========================
 
 @app.post("/api/event")
@@ -223,7 +218,6 @@ def add_event(
 ):
     require_ingest_key(x_ingest_key)
 
-    # Sanity check peso (1..5000g)
     w_in = float(ev.weight_g)
     if not (0 < w_in <= 5000):
         raise HTTPException(status_code=400, detail="weight_g fuori range (1..5000)")
@@ -238,27 +232,23 @@ def add_event(
     co2_saved_g = w_in * factor
     ts = datetime.now(timezone.utc).isoformat()
 
-    # event_id: se non arriva, lo genero (idempotenza vera = event_id dal Raspberry)
     event_id = (ev.event_id or "").strip() or str(uuid.uuid4())
 
     duplicate = False
 
     with get_conn() as conn:
-        # crea bin se manca (capacity default 10000g)
         conn.execute("""
             INSERT INTO bins(bin_id, capacity_g, current_weight_g, last_seen)
             VALUES(?, 10000, 0, ?)
             ON CONFLICT(bin_id) DO UPDATE SET last_seen=excluded.last_seen
         """, (ev.bin_id, ts))
 
-        # inserisci evento (idempotenza su event_id)
         try:
             conn.execute("""
                 INSERT INTO events(ts, bin_id, material, weight_g, co2_saved_g, event_id)
                 VALUES(?, ?, ?, ?, ?, ?)
             """, (ts, ev.bin_id, material, w_in, co2_saved_g, event_id))
 
-            # aggiorna peso bin SOLO se evento nuovo
             conn.execute("""
                 UPDATE bins
                 SET current_weight_g = current_weight_g + ?, last_seen=?
@@ -267,17 +257,12 @@ def add_event(
 
         except Exception as e:
             msg = str(e).lower()
-            # riconosco errore unique su event_id
             if "unique" in msg and "event" in msg and "event_id" in msg:
                 duplicate = True
-                # aggiorno solo last_seen
-                conn.execute("""
-                    UPDATE bins SET last_seen=? WHERE bin_id=?
-                """, (ts, ev.bin_id))
+                conn.execute("UPDATE bins SET last_seen=? WHERE bin_id=?", (ts, ev.bin_id))
             else:
                 raise
 
-        # leggi stato
         row = conn.execute(
             "SELECT capacity_g, current_weight_g FROM bins WHERE bin_id=?",
             (ev.bin_id,)
@@ -297,11 +282,7 @@ def add_event(
         "weight_g": w_in,
         "factor_gco2_per_g": factor,
         "co2_saved_g": co2_saved_g,
-        "bin": {
-            "capacity_g": capacity,
-            "current_weight_g": current,
-            "fill_percent": fill_percent
-        }
+        "bin": {"capacity_g": capacity, "current_weight_g": current, "fill_percent": fill_percent}
     }
 
 
@@ -372,11 +353,7 @@ def stats_by_material():
         """).fetchall()
 
     return [
-        {
-            "material": r["material"],
-            "weight_g": float(r["weight_g"]),
-            "co2_saved_g": float(r["co2_saved_g"]),
-        }
+        {"material": r["material"], "weight_g": float(r["weight_g"]), "co2_saved_g": float(r["co2_saved_g"])}
         for r in rows
     ]
 
@@ -391,7 +368,7 @@ def stats_daily(days: int = 30):
 
 
 # =========================
-# API: ultimi eventi (ADMIN) - Step 3
+# API: ultimi eventi (ADMIN)
 # =========================
 
 @app.get("/api/events/recent")
@@ -401,7 +378,6 @@ def recent_events(
     x_api_key: str | None = Header(default=None),
 ):
     require_admin_key(x_api_key)
-
     limit = max(1, min(int(limit), 200))
 
     with get_conn() as conn:
@@ -421,17 +397,121 @@ def recent_events(
                 LIMIT ?
             """, (limit,)).fetchall()
 
-    out = []
-    for r in rows:
-        out.append({
+    return [
+        {
             "ts": r["ts"],
             "bin_id": r["bin_id"],
             "material": r["material"],
             "weight_g": float(r["weight_g"]),
             "co2_saved_g": float(r["co2_saved_g"]),
             "event_id": r["event_id"],
-        })
-    return out
+        }
+        for r in rows
+    ]
+
+
+# =========================
+# ✅ Step 6: endpoint unico dashboard
+# =========================
+
+@app.get("/api/dashboard")
+def dashboard(
+    days: int = 30,
+    events_limit: int = 20,
+    x_api_key: str | None = Header(default=None),
+):
+    days = max(1, min(int(days), 365))
+    events_limit = max(1, min(int(events_limit), 200))
+
+    is_admin = is_admin_key_valid(x_api_key)
+
+    # daily
+    daily = compute_daily(days)
+
+    # totals + by_material + bins + recent_events in 1 conn
+    with get_conn() as conn:
+        # totals
+        trow = conn.execute("""
+            SELECT
+              COALESCE(SUM(weight_g), 0) AS total_weight_g,
+              COALESCE(SUM(co2_saved_g), 0) AS total_co2_saved_g
+            FROM events
+        """).fetchone()
+
+        totals = {
+            "total_weight_g": float(trow["total_weight_g"]),
+            "total_co2_saved_g": float(trow["total_co2_saved_g"]),
+        }
+
+        # by material
+        mats = conn.execute("""
+            SELECT
+              material,
+              COALESCE(SUM(weight_g), 0) AS weight_g,
+              COALESCE(SUM(co2_saved_g), 0) AS co2_saved_g
+            FROM events
+            GROUP BY material
+            ORDER BY weight_g DESC
+        """).fetchall()
+
+        by_material = [
+            {"material": r["material"], "weight_g": float(r["weight_g"]), "co2_saved_g": float(r["co2_saved_g"])}
+            for r in mats
+        ]
+
+        # bins
+        bvals = conn.execute("""
+            SELECT bin_id, capacity_g, current_weight_g, last_seen
+            FROM bins
+            ORDER BY bin_id
+        """).fetchall()
+
+        bins = []
+        for r in bvals:
+            capacity = float(r["capacity_g"])
+            current = float(r["current_weight_g"])
+            fill_percent = 0.0 if capacity <= 0 else min(100.0, (current / capacity) * 100.0)
+            bins.append({
+                "bin_id": r["bin_id"],
+                "capacity_g": capacity,
+                "current_weight_g": current,
+                "fill_percent": fill_percent,
+                "last_seen": r["last_seen"],
+            })
+
+        # recent events only if admin
+        recent = []
+        if is_admin:
+            rows = conn.execute("""
+                SELECT ts, bin_id, material, weight_g, co2_saved_g, event_id
+                FROM events
+                ORDER BY ts DESC
+                LIMIT ?
+            """, (events_limit,)).fetchall()
+
+            recent = [
+                {
+                    "ts": r["ts"],
+                    "bin_id": r["bin_id"],
+                    "material": r["material"],
+                    "weight_g": float(r["weight_g"]),
+                    "co2_saved_g": float(r["co2_saved_g"]),
+                    "event_id": r["event_id"],
+                }
+                for r in rows
+            ]
+
+    return {
+        "server_time": datetime.now(timezone.utc).isoformat(),
+        "days": days,
+        "events_limit": events_limit,
+        "is_admin": is_admin,
+        "totals": totals,
+        "daily": daily,
+        "by_material": by_material,
+        "bins": bins,
+        "recent_events": recent,
+    }
 
 
 # =========================
@@ -518,6 +598,8 @@ def empty_bin(
         )
 
     return {"ok": True, "bin_id": bin_id, "emptied_at": now}
+
+
 
 
 
