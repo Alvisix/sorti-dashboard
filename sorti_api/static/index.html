@@ -10,38 +10,44 @@
   <link rel="icon" type="image/png" sizes="512x512" href="/static/icon-512.png">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
 
+  <!-- Inter font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
   <style>
     :root{
       --bg0:#07111f; --bg1:#0b1a2f;
-      --card: rgba(255,255,255,.06);
-      --stroke: rgba(255,255,255,.10);
       --txt: rgba(255,255,255,.92);
       --muted: rgba(255,255,255,.70);
       --muted2: rgba(255,255,255,.55);
       --good:#42d392; --warn:#f7c948; --bad:#ff5d5d;
       --brand1:#43cea2; --brand2:#185a9d;
-      --shadow: 0 20px 60px rgba(0,0,0,.45);
+      --shadow: 0 18px 50px rgba(0,0,0,.42);
       --r: 18px;
     }
     *{box-sizing:border-box}
     body{
       margin:0;
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       color:var(--txt);
       background:
-        radial-gradient(1200px 700px at 10% 10%, rgba(67,206,162,.22), transparent 60%),
-        radial-gradient(900px 600px at 85% 35%, rgba(24,90,157,.25), transparent 55%),
+        radial-gradient(1200px 700px at 10% 10%, rgba(67,206,162,.18), transparent 60%),
+        radial-gradient(900px 600px at 85% 35%, rgba(24,90,157,.22), transparent 55%),
         linear-gradient(180deg, var(--bg1), var(--bg0));
       min-height:100vh;
     }
     .wrap{max-width:1200px; margin:0 auto; padding:26px 18px 46px}
+
+    /* Header */
     .top{
       display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;
-      padding:18px;
-      border:1px solid var(--stroke);
-      background: linear-gradient(135deg, rgba(67,206,162,.12), rgba(24,90,157,.10));
+      padding:18px 18px;
+      border:1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.04);
       border-radius: var(--r);
       box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
     }
     .brand{display:flex; align-items:center; gap:14px}
     .logo{
@@ -50,16 +56,19 @@
       box-shadow: 0 10px 30px rgba(0,0,0,.35);
       border:1px solid rgba(255,255,255,.18);
     }
-    h1{margin:0; font-size:22px; line-height:1.2}
-    .sub{margin:2px 0 0; color:var(--muted); font-size:13.5px}
+    h1{margin:0; font-size:18px; line-height:1.2; letter-spacing:.2px}
+    .sub{margin:4px 0 0; color:var(--muted); font-size:13px}
+    .headerRight{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+
     .pill{
       display:inline-flex; align-items:center; gap:8px;
       padding:8px 12px;
-      border:1px solid var(--stroke);
+      border:1px solid rgba(255,255,255,.12);
       border-radius:999px;
-      background: rgba(0,0,0,.20);
-      color:var(--muted);
-      font-size:13px;
+      background: rgba(0,0,0,.18);
+      color: rgba(255,255,255,.86);
+      font-size:12.5px;
+      font-weight: 700;
     }
     .dot{
       width:10px; height:10px; border-radius:999px;
@@ -69,6 +78,7 @@
     .dot.warn{ background: var(--warn); box-shadow: 0 0 0 5px rgba(247,201,72,.14); }
     .dot.bad{ background: var(--bad); box-shadow: 0 0 0 5px rgba(255,93,93,.14); }
 
+    /* Layout */
     .grid{
       display:grid;
       grid-template-columns: 2fr 1.1fr;
@@ -78,71 +88,82 @@
     @media (max-width: 980px){ .grid{grid-template-columns:1fr} }
 
     .card{
-      border:1px solid var(--stroke);
-      background: rgba(255,255,255,.05);
+      border:1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.045);
       border-radius: var(--r);
       box-shadow: var(--shadow);
-      padding:16px;
+      padding:18px;
       overflow:hidden;
+      backdrop-filter: blur(10px);
     }
     .cardHeader{
       display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
       margin-bottom:12px;
     }
-    .title{font-weight:800; letter-spacing:.2px}
+    .title{font-weight:800; letter-spacing:.2px; font-size:14px}
     .row{display:flex; gap:12px; flex-wrap:wrap}
-    .kpi{
-      flex: 1 1 220px;
-      border:1px solid var(--stroke);
-      background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.04));
-      border-radius: 16px;
-      padding:14px;
-      min-width: 220px;
-    }
-    .kpi .label{color:var(--muted); font-size:13px}
-    .kpi .value{font-size:22px; font-weight:900; margin-top:6px}
-    .kpi .hint{color:var(--muted2); font-size:12.5px; margin-top:6px}
     .muted{color:var(--muted)}
     .small{font-size:12.5px}
     .sep{height:1px; background: rgba(255,255,255,.08); margin:12px 0}
 
+    /* KPI */
+    .kpiRow{
+      display:grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap:12px;
+    }
+    @media (max-width: 980px){ .kpiRow{grid-template-columns:1fr 1fr} }
+    @media (max-width: 520px){ .kpiRow{grid-template-columns:1fr} }
+    .kpi{
+      border:1px solid rgba(255,255,255,.10);
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      border-radius: 16px;
+      padding:14px;
+      min-width: 0;
+    }
+    .kpi .label{color:var(--muted); font-size:12.5px; font-weight:700}
+    .kpi .value{font-size:22px; font-weight:900; margin-top:8px; letter-spacing:.2px}
+    .kpi .hint{color:var(--muted2); font-size:12px; margin-top:6px}
+
     select, input{
       padding:10px 12px;
       border-radius: 14px;
-      border:1px solid var(--stroke);
-      background: rgba(0,0,0,.25);
+      border:1px solid rgba(255,255,255,.12);
+      background: rgba(0,0,0,.22);
       color: var(--txt);
       outline:none;
+      font-family: inherit;
     }
     input::placeholder{color: rgba(255,255,255,.45)}
     button{
       padding:10px 12px;
       border-radius: 14px;
-      border:1px solid var(--stroke);
-      background: rgba(255,255,255,.07);
+      border:1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.06);
       color: var(--txt);
       cursor:pointer;
-      transition: .15s transform, .15s background;
-      font-weight: 750;
+      transition: .15s transform, .15s background, .15s border;
+      font-weight: 800;
+      font-family: inherit;
     }
-    button:hover{background: rgba(255,255,255,.10)}
+    button:hover{background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.18)}
     button:active{transform: translateY(1px)}
     .btnPrimary{
-      background: linear-gradient(135deg, rgba(67,206,162,.9), rgba(24,90,157,.9));
+      background: linear-gradient(135deg, rgba(67,206,162,.88), rgba(24,90,157,.88));
       border: 1px solid rgba(255,255,255,.18);
     }
     .btnDanger{
-      background: rgba(255,93,93,.14);
-      border:1px solid rgba(255,93,93,.40);
+      background: rgba(255,93,93,.12);
+      border:1px solid rgba(255,93,93,.32);
     }
     .btnGhost{
-      background: rgba(255,255,255,.06);
-      border:1px solid rgba(255,255,255,.16);
+      background: rgba(255,255,255,.05);
+      border:1px solid rgba(255,255,255,.14);
     }
     .btnMini{
       padding:8px 10px;
       border-radius: 12px;
-      font-weight: 800;
+      font-weight: 900;
       font-size: 12.5px;
     }
 
@@ -151,131 +172,14 @@
       margin-top:10px;
       padding:10px 12px;
       border-radius:14px;
-      border:1px solid rgba(255,93,93,.45);
+      border:1px solid rgba(255,93,93,.42);
       background: rgba(255,93,93,.12);
       color: rgba(255,255,255,.92);
       font-size:13px;
       white-space:pre-wrap;
     }
 
-    table{width:100%; border-collapse:separate; border-spacing:0 10px}
-    thead th{
-      text-align:left;
-      color: var(--muted);
-      font-weight:800;
-      font-size:13px;
-      padding: 0 10px 8px;
-    }
-    tbody td{
-      padding: 14px 10px;
-      border-top:1px solid rgba(255,255,255,.06);
-      border-bottom:1px solid rgba(255,255,255,.06);
-      background: rgba(255,255,255,.05);
-    }
-
-    /* Accent line per priorità */
-    tbody tr{
-      position: relative;
-      transition: transform .12s ease, filter .12s ease;
-    }
-    tbody tr:hover{
-      filter: brightness(1.03);
-    }
-    tbody tr.priCritical td:first-child{
-      border-left: 6px solid rgba(255,93,93,.95);
-      padding-left: 12px;
-    }
-    tbody tr.priWarn td:first-child{
-      border-left: 6px solid rgba(247,201,72,.95);
-      padding-left: 12px;
-    }
-    tbody tr.priOk td:first-child{
-      border-left: 6px solid rgba(66,211,146,.0);
-      padding-left: 12px;
-    }
-
-    /* Rounding */
-    tbody tr td:first-child{
-      border-left:1px solid rgba(255,255,255,.06);
-      border-top-left-radius: 16px;
-      border-bottom-left-radius: 16px;
-      font-weight:900;
-      letter-spacing:.2px;
-    }
-    tbody tr td:last-child{
-      border-right:1px solid rgba(255,255,255,.06);
-      border-top-right-radius: 16px;
-      border-bottom-right-radius: 16px;
-      text-align:right;
-      white-space:nowrap;
-    }
-
-    /* Highlight quando arrivi dalla lista "Azioni rapide" */
-    .flash{
-      animation: flash 1.0s ease-in-out 1;
-    }
-    @keyframes flash{
-      0%{ filter: brightness(1.25); transform: translateY(-1px); }
-      100%{ filter: brightness(1.0); transform: translateY(0); }
-    }
-
-    .badge{
-      display:inline-flex; align-items:center; gap:8px;
-      padding:7px 10px;
-      border-radius: 999px;
-      border:1px solid var(--stroke);
-      font-size:12.5px;
-      font-weight:900;
-      margin-left:10px;
-    }
-    .bOK{background: rgba(66,211,146,.16); border-color: rgba(66,211,146,.35)}
-    .bWARN{background: rgba(247,201,72,.16); border-color: rgba(247,201,72,.35)}
-    .bBAD{background: rgba(255,93,93,.16); border-color: rgba(255,93,93,.35)}
-
-    .bar{
-      height: 12px;
-      width: 240px;
-      border-radius: 999px;
-      border: 1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.06);
-      overflow:hidden;
-      display:inline-block;
-      vertical-align: middle;
-      margin-left: 12px;
-    }
-    .bar > div{
-      height:100%;
-      width:0%;
-      border-radius:999px;
-      background: linear-gradient(90deg, rgba(67,206,162,.95), rgba(24,90,157,.95));
-      transition: width .25s ease;
-    }
-
-    .insights{
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:16px;
-      margin-top:16px;
-    }
-    @media (max-width: 980px){ .insights{grid-template-columns:1fr} }
-
-    .canvasWrap{height: 280px; position: relative;}
-    .emptyState{
-      padding: 14px;
-      color: var(--muted);
-      border: 1px dashed rgba(255,255,255,.18);
-      border-radius: 16px;
-      background: rgba(0,0,0,.18);
-      margin-top: 10px;
-      font-size: 13px;
-      white-space: pre-wrap;
-    }
-
-    .eventsTable thead th:last-child{ text-align:right; }
-    .eventsTable tbody tr td:first-child{ font-weight: 800; }
-    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-
-    /* Quick actions box */
+    /* Quick */
     .quick{
       display:flex;
       gap:12px;
@@ -285,14 +189,8 @@
       padding:12px;
       border:1px solid rgba(255,255,255,.10);
       border-radius: 16px;
-      background: rgba(0,0,0,.18);
+      background: rgba(0,0,0,.16);
       margin-top:12px;
-    }
-    .quickLeft{
-      display:flex; align-items:center; gap:10px; flex-wrap:wrap;
-    }
-    .quickRight{
-      display:flex; align-items:center; gap:10px; flex-wrap:wrap;
     }
     .chip{
       display:inline-flex; align-items:center; gap:8px;
@@ -304,15 +202,15 @@
       font-size:12.5px;
       font-weight:900;
     }
-    .chip.bad{ border-color: rgba(255,93,93,.35); background: rgba(255,93,93,.14); }
-    .chip.warn{ border-color: rgba(247,201,72,.35); background: rgba(247,201,72,.14); }
-    .chip.ok{ border-color: rgba(66,211,146,.28); background: rgba(66,211,146,.10); }
+    .chip.bad{ border-color: rgba(255,93,93,.32); background: rgba(255,93,93,.12); }
+    .chip.warn{ border-color: rgba(247,201,72,.32); background: rgba(247,201,72,.12); }
+    .chip.ok{ border-color: rgba(66,211,146,.24); background: rgba(66,211,146,.10); }
     .toggle{
       display:flex; align-items:center; gap:8px;
       border:1px solid rgba(255,255,255,.12);
       border-radius: 999px;
       padding: 6px 10px;
-      background: rgba(0,0,0,.20);
+      background: rgba(0,0,0,.16);
       color: var(--muted);
       font-size: 12.5px;
       font-weight: 800;
@@ -320,6 +218,112 @@
       user-select:none;
     }
     .toggle input{ transform: translateY(1px); }
+
+    /* Tables */
+    .tableWrap{
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 16px;
+      overflow: hidden;
+      background: rgba(0,0,0,.12);
+    }
+    table{width:100%; border-collapse:separate; border-spacing:0}
+    thead th{
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      text-align:left;
+      color: rgba(255,255,255,.74);
+      font-weight:800;
+      font-size:12.5px;
+      padding: 12px 12px;
+      background: rgba(10,18,32,.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(255,255,255,.08);
+    }
+    tbody td{
+      padding: 12px 12px;
+      border-bottom: 1px solid rgba(255,255,255,.06);
+      background: rgba(255,255,255,.02);
+      vertical-align: middle;
+    }
+    tbody tr:hover td{ background: rgba(255,255,255,.035); }
+
+    /* Priority accent */
+    tbody tr td:first-child{
+      font-weight: 900;
+      letter-spacing:.2px;
+      border-left: 6px solid transparent;
+    }
+    tbody tr.priCritical td:first-child{ border-left-color: rgba(255,93,93,.95); }
+    tbody tr.priWarn td:first-child{ border-left-color: rgba(247,201,72,.95); }
+    tbody tr.priOk td:first-child{ border-left-color: rgba(66,211,146,.0); }
+
+    /* Fill */
+    .fillWrap{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .fillPill{
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.12);
+      background: rgba(0,0,0,.18);
+      font-weight: 900;
+      font-size: 12.5px;
+      color: rgba(255,255,255,.88);
+    }
+    .badge{
+      display:inline-flex; align-items:center; gap:8px;
+      padding:6px 10px;
+      border-radius: 999px;
+      border:1px solid rgba(255,255,255,.12);
+      font-size:12px;
+      font-weight:900;
+    }
+    .bOK{background: rgba(66,211,146,.12); border-color: rgba(66,211,146,.28)}
+    .bWARN{background: rgba(247,201,72,.12); border-color: rgba(247,201,72,.30)}
+    .bBAD{background: rgba(255,93,93,.12); border-color: rgba(255,93,93,.30)}
+    .bar{
+      height: 14px;
+      width: 220px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.05);
+      overflow:hidden;
+      display:inline-block;
+      vertical-align: middle;
+    }
+    .bar > div{
+      height:100%;
+      width:0%;
+      border-radius:999px;
+      transition: width .25s ease;
+    }
+
+    .eventsTable thead th:last-child{ text-align:right; }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+
+    .insights{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:16px;
+      margin-top:16px;
+    }
+    @media (max-width: 980px){ .insights{grid-template-columns:1fr} }
+    .canvasWrap{height: 280px; position: relative;}
+    .emptyState{
+      padding: 14px;
+      color: var(--muted);
+      border: 1px dashed rgba(255,255,255,.16);
+      border-radius: 16px;
+      background: rgba(0,0,0,.14);
+      margin-top: 10px;
+      font-size: 13px;
+      white-space: pre-wrap;
+    }
+
+    .flash{ animation: flash 1.0s ease-in-out 1; }
+    @keyframes flash{
+      0%{ filter: brightness(1.22); transform: translateY(-1px); }
+      100%{ filter: brightness(1.0); transform: translateY(0); }
+    }
   </style>
 </head>
 
@@ -329,14 +333,20 @@
       <div class="brand">
         <div class="logo" aria-hidden="true"></div>
         <div>
-          <h1>Sorti SmartBin Dashboard</h1>
-          <div class="sub">Step 8: alert operativi + ordinamento intelligente + UI più “product”.</div>
+          <h1>Sorti SmartBin</h1>
+          <div class="sub">Dashboard real-time: eventi, CO₂, riempimento e alert operativi.</div>
         </div>
       </div>
 
-      <div class="pill">
-        <span id="connDot" class="dot"></span>
-        <span id="liveText">Live</span>
+      <div class="headerRight">
+        <div class="pill">
+          <span id="connDot" class="dot"></span>
+          <span id="liveText">Live</span>
+        </div>
+        <div class="pill">
+          <span class="muted">Aggiornato:</span>
+          <b id="lastUpdated">—</b>
+        </div>
       </div>
     </div>
 
@@ -344,9 +354,9 @@
       <!-- KPI -->
       <div class="card">
         <div class="cardHeader">
-          <div class="title">KPI</div>
+          <div class="title">Overview</div>
           <div class="row" style="align-items:center">
-            <span class="muted small">Range:</span>
+            <span class="muted small">Range</span>
             <select id="rangeSel">
               <option value="7">7 giorni</option>
               <option value="30" selected>30 giorni</option>
@@ -356,77 +366,72 @@
           </div>
         </div>
 
-        <div class="row">
+        <div class="kpiRow">
           <div class="kpi">
-            <div class="label">Peso raccolto (range)</div>
+            <div class="label">Peso (range)</div>
             <div id="kpiRangeWeight" class="value">—</div>
-            <div class="hint">Somma dal report giornaliero</div>
+            <div class="hint">Somma nel range</div>
           </div>
           <div class="kpi">
-            <div class="label">CO₂ risparmiata (range)</div>
+            <div class="label">CO₂ (range)</div>
             <div id="kpiRangeCO2" class="value">—</div>
-            <div class="hint">Somma dal report giornaliero</div>
+            <div class="hint">Somma nel range</div>
           </div>
           <div class="kpi">
-            <div class="label">Peso raccolto (totale)</div>
+            <div class="label">Peso (totale)</div>
             <div id="kpiTotalWeight" class="value">—</div>
             <div class="hint">Storico completo</div>
           </div>
           <div class="kpi">
-            <div class="label">CO₂ risparmiata (totale)</div>
+            <div class="label">CO₂ (totale)</div>
             <div id="kpiTotalCO2" class="value">—</div>
             <div class="hint">Storico completo</div>
           </div>
         </div>
 
         <div class="sep"></div>
-        <div class="row">
-          <div class="pill"><span class="muted">Ultimo aggiornamento:</span> <b id="lastUpdated">—</b></div>
-          <div class="pill"><span class="muted">Cestini:</span> <b id="binsCount">—</b></div>
-        </div>
 
         <div class="quick">
-          <div class="quickLeft">
-            <span class="title">Azioni rapide</span>
-            <span id="alertSummary" class="chip ok">0 da svuotare</span>
-            <span class="muted small">Soglie:</span>
-            <span class="chip warn">Warn ≥ <b id="warnLabel">70%</b></span>
-            <span class="chip bad">Crit ≥ <b id="critLabel">85%</b></span>
+          <div class="row" style="align-items:center">
+            <span class="title">Alert</span>
+            <span id="alertSummary" class="chip ok">0</span>
+            <span class="muted small">Warn ≥ <b id="warnLabel">70%</b></span>
+            <span class="muted small">Crit ≥ <b id="critLabel">85%</b></span>
+            <span class="muted small">Cestini: <b id="binsCount">—</b></span>
           </div>
-          <div class="quickRight">
+          <div class="row" style="align-items:center">
             <label class="toggle" title="Mostra solo bins in warning/critical">
               <input type="checkbox" id="onlyAlerts">
               Solo alert
             </label>
-            <button class="btnGhost btnMini" id="btnEditThresholds">Modifica soglie</button>
+            <button class="btnGhost btnMini" id="btnEditThresholds">Soglie</button>
           </div>
         </div>
 
         <div id="alertsList" class="emptyState" style="display:none"></div>
-
         <div id="errBox" class="errBox"></div>
       </div>
 
-      <!-- Keys + Simulator -->
+      <!-- Tools -->
       <div class="card">
         <div class="cardHeader">
-          <div class="title">Chiavi & Simulator</div>
-          <div class="small muted">Admin ≠ Ingest</div>
+          <div class="title">Tools</div>
+          <div class="small muted">admin ≠ ingest</div>
         </div>
 
         <div class="row" style="margin-bottom:10px">
           <input id="adminKeyInput" type="password" placeholder="ADMIN key (X-API-Key)" style="flex:1 1 240px" />
-          <button class="btnPrimary" id="btnSaveAdmin">Salva Admin</button>
+          <button class="btnPrimary" id="btnSaveAdmin">Salva</button>
         </div>
 
         <div class="row">
           <input id="ingestKeyInput" type="password" placeholder="INGEST key (X-Ingest-Key)" style="flex:1 1 240px" />
-          <button class="btnPrimary" id="btnSaveIngest">Salva Ingest</button>
+          <button class="btnPrimary" id="btnSaveIngest">Salva</button>
         </div>
 
         <div class="sep"></div>
 
-        <div class="title" style="margin-bottom:8px">Simula evento (come Raspberry)</div>
+        <div class="title" style="margin-bottom:8px">Simula evento</div>
         <div class="row">
           <input id="simBin" placeholder="bin_id (es: SORTI_001)" style="flex:1 1 180px" />
           <input id="simMat" list="matList" placeholder="materiale (es: plastica)" style="flex:1 1 180px" />
@@ -437,7 +442,7 @@
             <option value="metallo"></option>
             <option value="organico"></option>
           </datalist>
-          <input id="simW" type="number" min="1" placeholder="grammi" style="width:120px" />
+          <input id="simW" type="number" min="1" placeholder="g" style="width:120px" />
           <button id="btnSimEvent">Invia</button>
         </div>
 
@@ -446,18 +451,18 @@
         <div class="sep"></div>
 
         <div class="row">
-          <button id="btnExportEvents">Scarica eventi CSV (admin)</button>
+          <button id="btnExportEvents">Export eventi CSV</button>
         </div>
 
         <div class="row" style="margin-top:10px; align-items:center">
-          <span class="muted small">Export daily (giorni):</span>
+          <span class="muted small">Daily:</span>
           <input id="exportDays" type="number" min="1" max="365" value="30" style="width:120px" />
-          <button id="btnExportDaily">Scarica CSV (admin)</button>
+          <button id="btnExportDaily">Export CSV</button>
         </div>
 
         <div class="small muted" style="margin-top:12px; line-height:1.35">
-          • Real-time: la UI si aggiorna appena arriva un evento (SSE).<br>
-          • Se SSE non va, passa automaticamente in polling.
+          • Real-time: la UI si aggiorna quando arrivano eventi (SSE).<br>
+          • Fallback: polling automatico se SSE non disponibile.
         </div>
       </div>
     </div>
@@ -465,55 +470,59 @@
     <!-- Bins -->
     <div class="card" style="margin-top:16px">
       <div class="cardHeader">
-        <div class="title">Cestini</div>
-        <div class="small muted">ordinati per priorità (crit → warn → ok)</div>
+        <div class="title">Bins</div>
+        <div class="small muted">priorità: crit → warn → ok</div>
       </div>
 
-      <table>
-        <thead>
-          <tr>
-            <th>Bin</th>
-            <th>Peso</th>
-            <th>Capacità</th>
-            <th>Riempimento</th>
-            <th>Ultimo update</th>
-            <th style="text-align:right">Azioni (admin)</th>
-          </tr>
-        </thead>
-        <tbody id="binsBody"></tbody>
-      </table>
+      <div class="tableWrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Bin</th>
+              <th>Peso</th>
+              <th>Capacità</th>
+              <th>Riempimento</th>
+              <th>Ultimo update</th>
+              <th style="text-align:right">Azioni</th>
+            </tr>
+          </thead>
+          <tbody id="binsBody"></tbody>
+        </table>
+      </div>
     </div>
 
     <!-- Recent events -->
     <div class="card" style="margin-top:16px">
       <div class="cardHeader">
-        <div class="title">Ultimi eventi (admin)</div>
-        <div class="small muted">inclusi solo se X-API-Key valida</div>
+        <div class="title">Recent events (admin)</div>
+        <div class="small muted">visibili solo con admin key valida</div>
       </div>
 
       <div id="eventsEmpty" class="emptyState" style="display:none"></div>
 
-      <table class="eventsTable">
-        <thead>
-          <tr>
-            <th>Quando</th>
-            <th>Bin</th>
-            <th>Materiale</th>
-            <th>Peso</th>
-            <th>CO₂</th>
-            <th style="text-align:right">event_id</th>
-          </tr>
-        </thead>
-        <tbody id="eventsBody"></tbody>
-      </table>
+      <div class="tableWrap">
+        <table class="eventsTable">
+          <thead>
+            <tr>
+              <th>Quando</th>
+              <th>Bin</th>
+              <th>Materiale</th>
+              <th>Peso</th>
+              <th>CO₂</th>
+              <th style="text-align:right">event_id</th>
+            </tr>
+          </thead>
+          <tbody id="eventsBody"></tbody>
+        </table>
+      </div>
     </div>
 
     <!-- Insights -->
     <div class="insights">
       <div class="card">
         <div class="cardHeader">
-          <div class="title">Andamento CO₂ (range)</div>
-          <div class="small muted">daily da /api/dashboard</div>
+          <div class="title">CO₂ over time</div>
+          <div class="small muted">range selezionato</div>
         </div>
         <div class="canvasWrap"><canvas id="co2Line"></canvas></div>
         <div id="lineEmpty" class="emptyState" style="display:none">Nessun dato nel range selezionato.</div>
@@ -521,8 +530,8 @@
 
       <div class="card">
         <div class="cardHeader">
-          <div class="title">Breakdown materiali (peso totale)</div>
-          <div class="small muted">by_material da /api/dashboard</div>
+          <div class="title">Materials breakdown</div>
+          <div class="small muted">peso totale</div>
         </div>
         <div class="canvasWrap"><canvas id="matPie"></canvas></div>
         <div id="pieEmpty" class="emptyState" style="display:none">Nessun dato materiali (ancora nessun evento).</div>
@@ -544,7 +553,7 @@
     let pollTimer = null;
     let lastUpdateTs = 0;
 
-    // Step 8 thresholds (editable)
+    // Thresholds
     const LS_THRESH = "sorti_thresholds_v1";
     let thresholds = { warn: 70, critical: 85 };
 
@@ -563,18 +572,16 @@
     function saveThresholds(){
       localStorage.setItem(LS_THRESH, JSON.stringify(thresholds));
     }
-
     function updateThresholdLabels(){
       $("warnLabel").textContent = `${thresholds.warn}%`;
       $("critLabel").textContent = `${thresholds.critical}%`;
     }
 
     function setConnState(state){
-      // state: realtime | polling | offline
       const dot = $("connDot");
       dot.classList.remove("warn","bad");
       if (state === "realtime"){
-        dot.classList.remove("warn","bad");
+        // green
       } else if (state === "polling"){
         dot.classList.add("warn");
       } else {
@@ -589,7 +596,7 @@
     function showError(msg){
       $("errBox").style.display = "block";
       $("errBox").textContent = msg;
-      setLive("Errore", "offline");
+      setLive("Offline", "offline");
     }
     function clearError(){
       $("errBox").style.display = "none";
@@ -619,7 +626,6 @@
       if (!d) return (s || "—");
       return d.toLocaleString();
     }
-
     function timeAgo(iso){
       const d = isoToDate(iso);
       if (!d) return "—";
@@ -644,26 +650,11 @@
       const y = Math.floor(days/365);
       return `${y} anni fa`;
     }
-
     function shortId(s){
       if (!s) return "—";
       const str = String(s);
       if (str.length <= 10) return str;
       return str.slice(0, 8) + "…" + str.slice(-6);
-    }
-
-    function fillBadge(fill){
-      const f = Number(fill || 0);
-      if (f >= thresholds.critical) return `<span class="badge bBAD">PIENO</span>`;
-      if (f >= thresholds.warn) return `<span class="badge bWARN">QUASI PIENO</span>`;
-      return `<span class="badge bOK">OK</span>`;
-    }
-
-    function priorityOf(fill){
-      const f = Number(fill || 0);
-      if (f >= thresholds.critical) return 2; // critical
-      if (f >= thresholds.warn) return 1;     // warn
-      return 0;                               // ok
     }
 
     // localStorage keys
@@ -779,33 +770,136 @@
     }
     window.emptyBin = emptyBin;
 
-    // Charts
+    function barColor(fill){
+      const f = Number(fill||0);
+      if (f >= thresholds.critical) return "linear-gradient(90deg, rgba(255,93,93,.95), rgba(255,140,73,.95))";
+      if (f >= thresholds.warn) return "linear-gradient(90deg, rgba(247,201,72,.95), rgba(255,140,73,.85))";
+      return "linear-gradient(90deg, rgba(67,206,162,.95), rgba(24,90,157,.90))";
+    }
+
+    function fillBadge(fill){
+      const f = Number(fill || 0);
+      if (f >= thresholds.critical) return `<span class="badge bBAD">CRITICO</span>`;
+      if (f >= thresholds.warn) return `<span class="badge bWARN">ATTENZIONE</span>`;
+      return `<span class="badge bOK">OK</span>`;
+    }
+
+    function priorityOf(fill){
+      const f = Number(fill || 0);
+      if (f >= thresholds.critical) return 2;
+      if (f >= thresholds.warn) return 1;
+      return 0;
+    }
+
+    function renderQuickAlerts(bins){
+      const warn = thresholds.warn;
+      const crit = thresholds.critical;
+
+      const criticalBins = bins.filter(b => Number(b.fill_percent||0) >= crit);
+      const warnBins = bins.filter(b => Number(b.fill_percent||0) >= warn && Number(b.fill_percent||0) < crit);
+      const totalAlerts = criticalBins.length + warnBins.length;
+
+      const summary = $("alertSummary");
+      if (criticalBins.length > 0){
+        summary.className = "chip bad";
+        summary.textContent = `${criticalBins.length} critici`;
+      } else if (warnBins.length > 0){
+        summary.className = "chip warn";
+        summary.textContent = `${warnBins.length} warning`;
+      } else {
+        summary.className = "chip ok";
+        summary.textContent = "0";
+      }
+
+      const list = $("alertsList");
+      if (totalAlerts === 0){
+        list.style.display = "none";
+        list.textContent = "";
+        return;
+      }
+
+      const items = [
+        ...criticalBins.map(b => ({...b, _p:"crit"})),
+        ...warnBins.map(b => ({...b, _p:"warn"})),
+      ].sort((a,b) => Number(b.fill_percent||0) - Number(a.fill_percent||0));
+
+      const lines = items.slice(0, 8).map(b => {
+        const f = Math.round(Number(b.fill_percent||0));
+        const tag = b._p === "crit" ? "CRITICO" : "WARNING";
+        return `• ${tag} — ${b.bin_id} (${f}%)`;
+      }).join("\n");
+
+      list.style.display = "block";
+      list.textContent = `Da attenzionare:\n${lines}`;
+    }
+
+    // Charts defaults
     Chart.defaults.color = "rgba(255,255,255,.82)";
-    Chart.defaults.borderColor = "rgba(255,255,255,.10)";
-    Chart.defaults.font.family = "system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif";
+    Chart.defaults.borderColor = "rgba(255,255,255,.08)";
+    Chart.defaults.font.family = "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif";
+
+    // ✅ Plugin: testo al centro del donut (Totale)
+    const donutCenterText = {
+      id: "donutCenterText",
+      afterDraw(chart) {
+        const { ctx, chartArea } = chart;
+        if (!chartArea) return;
+        if (chart.config?.type !== "doughnut") return;
+
+        const ds = chart.data?.datasets?.[0];
+        if (!ds || !Array.isArray(ds.data)) return;
+
+        const totalG = ds.data.reduce((s, v) => s + (Number(v) || 0), 0);
+        const totalTxt = formatWeight(totalG);
+
+        const x = (chartArea.left + chartArea.right) / 2;
+        const y = (chartArea.top + chartArea.bottom) / 2;
+
+        ctx.save();
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+
+        ctx.font = "700 12px Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif";
+        ctx.fillStyle = "rgba(255,255,255,.70)";
+        ctx.fillText("Totale", x, y - 10);
+
+        ctx.font = "900 16px Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif";
+        ctx.fillStyle = "rgba(255,255,255,.92)";
+        ctx.fillText(totalTxt, x, y + 10);
+
+        ctx.restore();
+      }
+    };
+    Chart.register(donutCenterText);
 
     const lineChart = new Chart($("co2Line").getContext("2d"), {
       type:"line",
       data:{labels:[], datasets:[{
-        label:"CO₂ (g)",
+        label:"CO₂",
         data:[],
         borderWidth:2,
         tension:.25,
-        pointRadius:3,
+        pointRadius:2,
         pointHoverRadius:5,
         fill: true
       }]},
       options:{
         responsive:true, maintainAspectRatio:false,
-        plugins:{ legend:{display:false} },
+        plugins:{
+          legend:{display:false},
+          tooltip:{ callbacks:{ label:(ctx)=> ` ${formatCO2(ctx.parsed.y)}` } }
+        },
         scales:{
           x:{ grid:{display:false} },
-          y:{ ticks:{ callback:(v)=>formatCO2(v) } }
+          y:{
+            grid:{ color:"rgba(255,255,255,.06)" },
+            ticks:{ callback:(v)=>formatCO2(v) }
+          }
         }
       }
     });
 
-    const pieChart = new Chart($("matPie").getContext("2d"), {
+    const doughnutChart = new Chart($("matPie").getContext("2d"), {
       type:"doughnut",
       data:{labels:[], datasets:[{
         data:[],
@@ -819,13 +913,17 @@
           "rgba(96,215,255,.90)",
           "rgba(160,255,160,.90)"
         ],
-        borderColor:"rgba(255,255,255,.18)",
-        borderWidth:1.5
+        borderColor:"rgba(255,255,255,.14)",
+        borderWidth:1.2
       }]},
       options:{
         responsive:true, maintainAspectRatio:false,
-        cutout:"62%",
-        plugins:{ legend:{ position:"top", labels:{ boxWidth:14 } } }
+        cutout:"64%",
+        plugins:{
+          legend:{ position:"top", labels:{ boxWidth:12 } },
+          tooltip:{ callbacks:{ label:(ctx)=> ` ${ctx.label}: ${formatWeight(ctx.parsed)}` } },
+          donutCenterText: {}
+        }
       }
     });
 
@@ -845,7 +943,7 @@
     }
     function startPollingFallback(){
       if (pollTimer) return;
-      setLive("Live (polling)", "polling");
+      setLive("Polling", "polling");
       pollTimer = setInterval(() => refresh(), 10000);
     }
 
@@ -857,7 +955,7 @@
         es = new EventSource("/api/stream");
 
         es.addEventListener("hello", () => {
-          setLive("Live (realtime)", "realtime");
+          setLive("Realtime", "realtime");
           refresh();
         });
 
@@ -865,7 +963,7 @@
           const now = Date.now();
           if (now - lastUpdateTs < 250) return;
           lastUpdateTs = now;
-          setLive("Live (realtime)", "realtime");
+          setLive("Realtime", "realtime");
           refresh();
         });
 
@@ -877,62 +975,6 @@
       } catch {
         startPollingFallback();
       }
-    }
-
-    function scrollToBin(binId){
-      const row = document.querySelector(`tr[data-bin="${CSS.escape(binId)}"]`);
-      if (!row) return;
-      row.scrollIntoView({ behavior: "smooth", block: "center" });
-      row.classList.remove("flash");
-      void row.offsetWidth; // restart anim
-      row.classList.add("flash");
-    }
-    window.scrollToBin = scrollToBin;
-
-    function renderQuickAlerts(bins){
-      const warn = thresholds.warn;
-      const crit = thresholds.critical;
-
-      const criticalBins = bins.filter(b => Number(b.fill_percent||0) >= crit);
-      const warnBins = bins.filter(b => Number(b.fill_percent||0) >= warn && Number(b.fill_percent||0) < crit);
-
-      const totalAlerts = criticalBins.length + warnBins.length;
-
-      const summary = $("alertSummary");
-      if (criticalBins.length > 0){
-        summary.className = "chip bad";
-        summary.innerHTML = `<b>${criticalBins.length}</b> critici`;
-      } else if (warnBins.length > 0){
-        summary.className = "chip warn";
-        summary.innerHTML = `<b>${warnBins.length}</b> warning`;
-      } else {
-        summary.className = "chip ok";
-        summary.textContent = "0 da svuotare";
-      }
-
-      const list = $("alertsList");
-      if (totalAlerts === 0){
-        list.style.display = "none";
-        list.textContent = "";
-        return;
-      }
-
-      const items = [
-        ...criticalBins.map(b => ({...b, _p:"crit"})),
-        ...warnBins.map(b => ({...b, _p:"warn"})),
-      ].sort((a,b) => Number(b.fill_percent||0) - Number(a.fill_percent||0));
-
-      const lines = items.slice(0, 8).map(b => {
-        const f = Math.round(Number(b.fill_percent||0));
-        const cls = b._p === "crit" ? "bad" : "warn";
-        const tag = b._p === "crit" ? "CRITICO" : "WARNING";
-        return `• <span class="chip ${cls}" style="cursor:pointer" onclick="scrollToBin('${b.bin_id}')">${tag}</span>
-                <b style="cursor:pointer" onclick="scrollToBin('${b.bin_id}')">${b.bin_id}</b>
-                — <span class="muted">${f}%</span>`;
-      }).join("\n");
-
-      list.style.display = "block";
-      list.textContent = `Bins da attenzionare:\n${lines}`;
     }
 
     async function refresh(){
@@ -948,29 +990,23 @@
         $("kpiTotalWeight").textContent = formatWeight(dash?.totals?.total_weight_g);
         $("kpiTotalCO2").textContent = formatCO2(dash?.totals?.total_co2_saved_g);
 
-        let bins = (dash?.bins || []).slice();
+        let binsAll = (dash?.bins || []).slice();
+        $("binsCount").textContent = binsAll.length.toString();
 
-        // Step 8: sort by priority (crit>warn>ok) then by fill desc
-        bins.sort((a,b) => {
+        // Sort by priority then fill desc
+        binsAll.sort((a,b) => {
           const pa = priorityOf(a.fill_percent);
           const pb = priorityOf(b.fill_percent);
           if (pa !== pb) return pb - pa;
           return Number(b.fill_percent||0) - Number(a.fill_percent||0);
         });
 
-        // quick alerts panel
-        renderQuickAlerts(bins);
+        renderQuickAlerts(binsAll);
 
-        // filter only alerts if toggled
         const onlyAlerts = !!$("onlyAlerts").checked;
-        if (onlyAlerts){
-          bins = bins.filter(b => priorityOf(b.fill_percent) > 0);
-        }
+        let bins = onlyAlerts ? binsAll.filter(b => priorityOf(b.fill_percent) > 0) : binsAll;
 
-        $("binsCount").textContent = (dash?.bins || []).length.toString();
-
-        // include filter flag in signature so table refreshes when toggling
-        const binsSig = (onlyAlerts ? "ONLYALERTS|" : "ALL|") + bins.map(b =>
+        const binsSig = (onlyAlerts ? "ONLY|" : "ALL|") + bins.map(b =>
           `${b.bin_id}|${Number(b.capacity_g||0)}|${Number(b.current_weight_g||0)}|${b.last_seen||""}|${Number(b.fill_percent||0)}`
         ).join(";;");
 
@@ -997,12 +1033,16 @@
                 <td>${wTxt}</td>
                 <td title="${cTxt}">${capKgTxt} kg</td>
                 <td>
-                  <b>${Math.round(fill)}%</b>
-                  ${fillBadge(fill)}
-                  <span class="bar"><div style="width:${barWidth}%"></div></span>
+                  <div class="fillWrap">
+                    <span class="fillPill">${Math.round(fill)}%</span>
+                    ${fillBadge(fill)}
+                    <span class="bar">
+                      <div style="width:${barWidth}%; background:${barColor(fill)}"></div>
+                    </span>
+                  </div>
                 </td>
                 <td class="muted" title="${lastTitle}">${lastHuman}</td>
-                <td>
+                <td style="text-align:right">
                   <button class="btnGhost btnMini" onclick="setCapacityKg('${b.bin_id}', ${Number(b.capacity_g||0)})">Capacità</button>
                   <button class="btnDanger btnMini" style="margin-left:8px" onclick="emptyBin('${b.bin_id}')">Svuota</button>
                 </td>
@@ -1027,10 +1067,11 @@
 
         const mats = dash?.by_material || [];
         $("pieEmpty").style.display = mats.some(r => Number(r.weight_g||0) > 0) ? "none" : "block";
-        pieChart.data.labels = mats.map(r=>r.material);
-        pieChart.data.datasets[0].data = mats.map(r=>Number(r.weight_g||0));
-        pieChart.update();
+        doughnutChart.data.labels = mats.map(r=>r.material);
+        doughnutChart.data.datasets[0].data = mats.map(r=>Number(r.weight_g||0));
+        doughnutChart.update();
 
+        // Events
         const eventsBody = $("eventsBody");
         const eventsEmpty = $("eventsEmpty");
 
@@ -1038,7 +1079,7 @@
         const events = dash?.recent_events || [];
 
         if (!adminKey()){
-          const msg = "🔒 Inserisci e salva la Admin key per vedere gli ultimi eventi (log).";
+          const msg = "🔒 Inserisci e salva la Admin key per vedere gli ultimi eventi.";
           if (lastEventsSig !== "NOADMIN"){
             lastEventsSig = "NOADMIN";
             eventsBody.innerHTML = "";
@@ -1046,7 +1087,7 @@
             eventsEmpty.textContent = msg;
           }
         } else if (!isAdmin) {
-          const msg = "❌ Admin key non valida (401). Controlla e salva di nuovo.";
+          const msg = "❌ Admin key non valida (401).";
           if (lastEventsSig !== "BADADMIN"){
             lastEventsSig = "BADADMIN";
             eventsBody.innerHTML = "";
@@ -1091,13 +1132,13 @@
 
         $("lastUpdated").textContent = new Date().toLocaleString();
       } catch (e){
-        showError(e?.message || String(e));
+        showError(e?.message || String(e)));
       } finally {
         refreshing = false;
       }
     }
 
-    // Simulator event (POST /api/event)
+    // Simulator event
     $("btnSimEvent").onclick = async () => {
       try{
         if (!ingestKey()) return alert("Manca Ingest key (X-Ingest-Key).");
@@ -1159,56 +1200,13 @@
     $("rangeSel").onchange = () => refresh();
     $("onlyAlerts").onchange = () => refresh();
 
-    // boot thresholds
+    // boot
     loadThresholds();
     updateThresholdLabels();
 
     // realtime
-    function startPollingFallback(){
-      if (pollTimer) return;
-      setLive("Live (polling)", "polling");
-      pollTimer = setInterval(() => refresh(), 10000);
-    }
-    function stopPolling(){
-      if (pollTimer){
-        clearInterval(pollTimer);
-        pollTimer = null;
-      }
-    }
-
-    function startSSE(){
-      try{
-        if (es) es.close();
-        stopPolling();
-
-        es = new EventSource("/api/stream");
-
-        es.addEventListener("hello", () => {
-          setLive("Live (realtime)", "realtime");
-          refresh();
-        });
-
-        es.addEventListener("update", () => {
-          const now = Date.now();
-          if (now - lastUpdateTs < 250) return;
-          lastUpdateTs = now;
-          setLive("Live (realtime)", "realtime");
-          refresh();
-        });
-
-        es.onerror = () => {
-          try { es.close(); } catch {}
-          es = null;
-          startPollingFallback();
-        };
-      } catch {
-        startPollingFallback();
-      }
-    }
-
-    // Start
-    refresh();
     startSSE();
+    refresh();
 
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) refresh();
@@ -1216,6 +1214,7 @@
   </script>
 </body>
 </html>
+
 
 
 
