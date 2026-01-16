@@ -10,7 +10,6 @@
   <link rel="icon" type="image/png" sizes="512x512" href="/static/icon-512.png">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
 
-  <!-- Inter font -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -39,7 +38,6 @@
     }
     .wrap{max-width:1200px; margin:0 auto; padding:26px 18px 46px}
 
-    /* Header */
     .top{
       display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;
       padding:18px 18px;
@@ -78,7 +76,6 @@
     .dot.warn{ background: var(--warn); box-shadow: 0 0 0 5px rgba(247,201,72,.14); }
     .dot.bad{ background: var(--bad); box-shadow: 0 0 0 5px rgba(255,93,93,.14); }
 
-    /* Layout */
     .grid{
       display:grid;
       grid-template-columns: 2fr 1.1fr;
@@ -106,7 +103,6 @@
     .small{font-size:12.5px}
     .sep{height:1px; background: rgba(255,255,255,.08); margin:12px 0}
 
-    /* KPI */
     .kpiRow{
       display:grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -179,7 +175,6 @@
       white-space:pre-wrap;
     }
 
-    /* Quick */
     .quick{
       display:flex;
       gap:12px;
@@ -219,7 +214,6 @@
     }
     .toggle input{ transform: translateY(1px); }
 
-    /* Tables */
     .tableWrap{
       border: 1px solid rgba(255,255,255,.08);
       border-radius: 16px;
@@ -248,7 +242,6 @@
     }
     tbody tr:hover td{ background: rgba(255,255,255,.035); }
 
-    /* Priority accent */
     tbody tr td:first-child{
       font-weight: 900;
       letter-spacing:.2px;
@@ -258,7 +251,6 @@
     tbody tr.priWarn td:first-child{ border-left-color: rgba(247,201,72,.95); }
     tbody tr.priOk td:first-child{ border-left-color: rgba(66,211,146,.0); }
 
-    /* Fill */
     .fillWrap{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
     .fillPill{
       padding:6px 10px;
@@ -318,12 +310,6 @@
       font-size: 13px;
       white-space: pre-wrap;
     }
-
-    .flash{ animation: flash 1.0s ease-in-out 1; }
-    @keyframes flash{
-      0%{ filter: brightness(1.22); transform: translateY(-1px); }
-      100%{ filter: brightness(1.0); transform: translateY(0); }
-    }
   </style>
 </head>
 
@@ -351,7 +337,6 @@
     </div>
 
     <div class="grid">
-      <!-- KPI -->
       <div class="card">
         <div class="cardHeader">
           <div class="title">Overview</div>
@@ -412,7 +397,6 @@
         <div id="errBox" class="errBox"></div>
       </div>
 
-      <!-- Tools -->
       <div class="card">
         <div class="cardHeader">
           <div class="title">Tools</div>
@@ -459,15 +443,9 @@
           <input id="exportDays" type="number" min="1" max="365" value="30" style="width:120px" />
           <button id="btnExportDaily">Export CSV</button>
         </div>
-
-        <div class="small muted" style="margin-top:12px; line-height:1.35">
-          • Real-time: la UI si aggiorna quando arrivano eventi (SSE).<br>
-          • Fallback: polling automatico se SSE non disponibile.
-        </div>
       </div>
     </div>
 
-    <!-- Bins -->
     <div class="card" style="margin-top:16px">
       <div class="cardHeader">
         <div class="title">Bins</div>
@@ -491,7 +469,6 @@
       </div>
     </div>
 
-    <!-- Recent events -->
     <div class="card" style="margin-top:16px">
       <div class="cardHeader">
         <div class="title">Recent events (admin)</div>
@@ -517,7 +494,6 @@
       </div>
     </div>
 
-    <!-- Insights -->
     <div class="insights">
       <div class="card">
         <div class="cardHeader">
@@ -543,17 +519,14 @@
   <script>
     const $ = (id) => document.getElementById(id);
 
-    // Anti-overlap refresh + anti-flicker signatures
     let refreshing = false;
     let lastBinsSig = "";
     let lastEventsSig = "";
 
-    // SSE + fallback polling
     let es = null;
     let pollTimer = null;
     let lastUpdateTs = 0;
 
-    // Thresholds
     const LS_THRESH = "sorti_thresholds_v1";
     let thresholds = { warn: 70, critical: 85 };
 
@@ -569,9 +542,7 @@
         }
       }catch{}
     }
-    function saveThresholds(){
-      localStorage.setItem(LS_THRESH, JSON.stringify(thresholds));
-    }
+    function saveThresholds(){ localStorage.setItem(LS_THRESH, JSON.stringify(thresholds)); }
     function updateThresholdLabels(){
       $("warnLabel").textContent = `${thresholds.warn}%`;
       $("critLabel").textContent = `${thresholds.critical}%`;
@@ -580,13 +551,8 @@
     function setConnState(state){
       const dot = $("connDot");
       dot.classList.remove("warn","bad");
-      if (state === "realtime"){
-        // green
-      } else if (state === "polling"){
-        dot.classList.add("warn");
-      } else {
-        dot.classList.add("bad");
-      }
+      if (state === "polling") dot.classList.add("warn");
+      if (state === "offline") dot.classList.add("bad");
     }
     function setLive(text, state){
       $("liveText").textContent = text;
@@ -657,7 +623,6 @@
       return str.slice(0, 8) + "…" + str.slice(-6);
     }
 
-    // localStorage keys
     const LS_ADMIN = "sorti_admin_key";
     const LS_INGEST = "sorti_ingest_key";
     function adminKey(){ return localStorage.getItem(LS_ADMIN) || ""; }
@@ -671,7 +636,6 @@
       alert("Admin key salvata ✅");
       refresh();
     };
-
     $("btnSaveIngest").onclick = () => {
       const v = $("ingestKeyInput").value.trim();
       if (!v) return alert("Incolla la INGEST key.");
@@ -739,10 +703,7 @@
 
         await fetchJSON(`/api/bins/${encodeURIComponent(binId)}/config`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-API-Key": adminKey()
-          },
+          headers: { "Content-Type": "application/json", "X-API-Key": adminKey() },
           body: JSON.stringify({ capacity_g })
         });
 
@@ -776,21 +737,18 @@
       if (f >= thresholds.warn) return "linear-gradient(90deg, rgba(247,201,72,.95), rgba(255,140,73,.85))";
       return "linear-gradient(90deg, rgba(67,206,162,.95), rgba(24,90,157,.90))";
     }
-
     function fillBadge(fill){
       const f = Number(fill || 0);
       if (f >= thresholds.critical) return `<span class="badge bBAD">CRITICO</span>`;
       if (f >= thresholds.warn) return `<span class="badge bWARN">ATTENZIONE</span>`;
       return `<span class="badge bOK">OK</span>`;
     }
-
     function priorityOf(fill){
       const f = Number(fill || 0);
       if (f >= thresholds.critical) return 2;
       if (f >= thresholds.warn) return 1;
       return 0;
     }
-
     function renderQuickAlerts(bins){
       const warn = thresholds.warn;
       const crit = thresholds.critical;
@@ -838,7 +796,7 @@
     Chart.defaults.borderColor = "rgba(255,255,255,.08)";
     Chart.defaults.font.family = "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif";
 
-    // ✅ Plugin: testo al centro del donut (Totale)
+    // Donut center text plugin
     const donutCenterText = {
       id: "donutCenterText",
       afterDraw(chart) {
@@ -881,7 +839,7 @@
         tension:.25,
         pointRadius:2,
         pointHoverRadius:5,
-        fill: true
+        fill:true
       }]},
       options:{
         responsive:true, maintainAspectRatio:false,
@@ -935,12 +893,6 @@
       return await fetchJSON(url, { headers });
     }
 
-    function stopPolling(){
-      if (pollTimer){
-        clearInterval(pollTimer);
-        pollTimer = null;
-      }
-    }
     function startPollingFallback(){
       if (pollTimer) return;
       setLive("Polling", "polling");
@@ -950,7 +902,7 @@
     function startSSE(){
       try{
         if (es) es.close();
-        stopPolling();
+        if (pollTimer){ clearInterval(pollTimer); pollTimer = null; }
 
         es = new EventSource("/api/stream");
 
@@ -984,7 +936,6 @@
       try{
         clearError();
         const days = Number($("rangeSel").value || 30);
-
         const dash = await fetchDashboard(days);
 
         $("kpiTotalWeight").textContent = formatWeight(dash?.totals?.total_weight_g);
@@ -993,7 +944,6 @@
         let binsAll = (dash?.bins || []).slice();
         $("binsCount").textContent = binsAll.length.toString();
 
-        // Sort by priority then fill desc
         binsAll.sort((a,b) => {
           const pa = priorityOf(a.fill_percent);
           const pb = priorityOf(b.fill_percent);
@@ -1028,7 +978,7 @@
             const priClass = (p === 2) ? "priCritical" : (p === 1) ? "priWarn" : "priOk";
 
             return `
-              <tr class="${priClass}" data-bin="${b.bin_id}">
+              <tr class="${priClass}">
                 <td>${b.bin_id}</td>
                 <td>${wTxt}</td>
                 <td title="${cTxt}">${capKgTxt} kg</td>
@@ -1071,94 +1021,29 @@
         doughnutChart.data.datasets[0].data = mats.map(r=>Number(r.weight_g||0));
         doughnutChart.update();
 
-        // Events
-        const eventsBody = $("eventsBody");
-        const eventsEmpty = $("eventsEmpty");
-
-        const isAdmin = !!dash?.is_admin;
-        const events = dash?.recent_events || [];
-
-        if (!adminKey()){
-          const msg = "🔒 Inserisci e salva la Admin key per vedere gli ultimi eventi.";
-          if (lastEventsSig !== "NOADMIN"){
-            lastEventsSig = "NOADMIN";
-            eventsBody.innerHTML = "";
-            eventsEmpty.style.display = "block";
-            eventsEmpty.textContent = msg;
-          }
-        } else if (!isAdmin) {
-          const msg = "❌ Admin key non valida (401).";
-          if (lastEventsSig !== "BADADMIN"){
-            lastEventsSig = "BADADMIN";
-            eventsBody.innerHTML = "";
-            eventsEmpty.style.display = "block";
-            eventsEmpty.textContent = msg;
-          }
-        } else {
-          const eventsSig = (events || []).map(e =>
-            `${e.ts||""}|${e.bin_id||""}|${e.material||""}|${Number(e.weight_g||0)}|${Number(e.co2_saved_g||0)}|${e.event_id||""}`
-          ).join(";;");
-
-          if (eventsSig !== lastEventsSig){
-            lastEventsSig = eventsSig;
-
-            if (!events || events.length === 0){
-              eventsBody.innerHTML = "";
-              eventsEmpty.style.display = "block";
-              eventsEmpty.textContent = "Nessun evento registrato (ancora).";
-            } else {
-              eventsEmpty.style.display = "none";
-              eventsEmpty.textContent = "";
-
-              const rowsHTML = events.map(e => {
-                const whenHuman = timeAgo(e.ts);
-                const whenTitle = isoToNice(e.ts);
-                return `
-                  <tr>
-                    <td class="muted" title="${whenTitle}">${whenHuman}</td>
-                    <td><b>${e.bin_id}</b></td>
-                    <td>${e.material}</td>
-                    <td>${formatWeight(e.weight_g)}</td>
-                    <td>${formatCO2(e.co2_saved_g)}</td>
-                    <td class="mono" style="text-align:right" title="${e.event_id || ""}">${shortId(e.event_id)}</td>
-                  </tr>
-                `;
-              }).join("");
-
-              eventsBody.innerHTML = rowsHTML;
-            }
-          }
-        }
-
         $("lastUpdated").textContent = new Date().toLocaleString();
       } catch (e){
-        showError(e?.message || String(e)));
+        showError(e?.message || String(e));  // ✅ FIX: niente parentesi extra
       } finally {
         refreshing = false;
       }
     }
 
-    // Simulator event
     $("btnSimEvent").onclick = async () => {
       try{
         if (!ingestKey()) return alert("Manca Ingest key (X-Ingest-Key).");
         const bin = $("simBin").value.trim();
         const mat = $("simMat").value.trim();
         const w = Number($("simW").value || 0);
-
         if (!bin || !mat || !w) return alert("Compila bin_id, materiale e grammi.");
 
         const resp = await fetchJSON("/api/event", {
           method:"POST",
-          headers:{
-            "Content-Type":"application/json",
-            "X-Ingest-Key": ingestKey()
-          },
+          headers:{ "Content-Type":"application/json", "X-Ingest-Key": ingestKey() },
           body: JSON.stringify({ bin_id: bin, material: mat, weight_g: w })
         });
 
         $("simW").value = "";
-
         const r = $("simResult");
         r.style.display = "block";
         r.textContent =
@@ -1167,8 +1052,7 @@
           `materiale: ${resp.material}\n` +
           `peso: ${formatWeight(resp.weight_g)}\n` +
           `CO₂ risparmiata: ${formatCO2(resp.co2_saved_g)}\n` +
-          `riempimento: ${Math.round(resp.bin.fill_percent)}%` +
-          (resp.duplicate ? `\n⚠️ Nota: evento DUPLICATO (event_id già visto)` : "");
+          `riempimento: ${Math.round(resp.bin.fill_percent)}%`;
 
         await refresh();
       }catch(e){
@@ -1177,7 +1061,6 @@
       }
     };
 
-    // Export
     $("btnExportEvents").onclick = async () => {
       try{
         if (!adminKey()) return alert("Manca Admin key.");
@@ -1200,17 +1083,10 @@
     $("rangeSel").onchange = () => refresh();
     $("onlyAlerts").onchange = () => refresh();
 
-    // boot
     loadThresholds();
     updateThresholdLabels();
-
-    // realtime
     startSSE();
     refresh();
-
-    document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) refresh();
-    });
   </script>
 </body>
 </html>
