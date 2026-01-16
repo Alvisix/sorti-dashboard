@@ -61,7 +61,13 @@
       color:var(--muted);
       font-size:13px;
     }
-    .dot{width:10px; height:10px; border-radius:999px; background: var(--good); box-shadow: 0 0 0 5px rgba(66,211,146,.14);}
+    .dot{
+      width:10px; height:10px; border-radius:999px;
+      background: var(--good);
+      box-shadow: 0 0 0 5px rgba(66,211,146,.14);
+    }
+    .dot.warn{ background: var(--warn); box-shadow: 0 0 0 5px rgba(247,201,72,.14); }
+    .dot.bad{ background: var(--bad); box-shadow: 0 0 0 5px rgba(255,93,93,.14); }
 
     .grid{
       display:grid;
@@ -133,6 +139,12 @@
       background: rgba(255,255,255,.06);
       border:1px solid rgba(255,255,255,.16);
     }
+    .btnMini{
+      padding:8px 10px;
+      border-radius: 12px;
+      font-weight: 800;
+      font-size: 12.5px;
+    }
 
     .errBox{
       display:none;
@@ -160,6 +172,29 @@
       border-bottom:1px solid rgba(255,255,255,.06);
       background: rgba(255,255,255,.05);
     }
+
+    /* Accent line per priorità */
+    tbody tr{
+      position: relative;
+      transition: transform .12s ease, filter .12s ease;
+    }
+    tbody tr:hover{
+      filter: brightness(1.03);
+    }
+    tbody tr.priCritical td:first-child{
+      border-left: 6px solid rgba(255,93,93,.95);
+      padding-left: 12px;
+    }
+    tbody tr.priWarn td:first-child{
+      border-left: 6px solid rgba(247,201,72,.95);
+      padding-left: 12px;
+    }
+    tbody tr.priOk td:first-child{
+      border-left: 6px solid rgba(66,211,146,.0);
+      padding-left: 12px;
+    }
+
+    /* Rounding */
     tbody tr td:first-child{
       border-left:1px solid rgba(255,255,255,.06);
       border-top-left-radius: 16px;
@@ -172,11 +207,21 @@
       border-top-right-radius: 16px;
       border-bottom-right-radius: 16px;
       text-align:right;
+      white-space:nowrap;
+    }
+
+    /* Highlight quando arrivi dalla lista "Azioni rapide" */
+    .flash{
+      animation: flash 1.0s ease-in-out 1;
+    }
+    @keyframes flash{
+      0%{ filter: brightness(1.25); transform: translateY(-1px); }
+      100%{ filter: brightness(1.0); transform: translateY(0); }
     }
 
     .badge{
       display:inline-flex; align-items:center; gap:8px;
-      padding:6px 10px;
+      padding:7px 10px;
       border-radius: 999px;
       border:1px solid var(--stroke);
       font-size:12.5px;
@@ -229,6 +274,52 @@
     .eventsTable thead th:last-child{ text-align:right; }
     .eventsTable tbody tr td:first-child{ font-weight: 800; }
     .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+
+    /* Quick actions box */
+    .quick{
+      display:flex;
+      gap:12px;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:space-between;
+      padding:12px;
+      border:1px solid rgba(255,255,255,.10);
+      border-radius: 16px;
+      background: rgba(0,0,0,.18);
+      margin-top:12px;
+    }
+    .quickLeft{
+      display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    }
+    .quickRight{
+      display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    }
+    .chip{
+      display:inline-flex; align-items:center; gap:8px;
+      padding:7px 10px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.14);
+      background: rgba(255,255,255,.06);
+      color: rgba(255,255,255,.88);
+      font-size:12.5px;
+      font-weight:900;
+    }
+    .chip.bad{ border-color: rgba(255,93,93,.35); background: rgba(255,93,93,.14); }
+    .chip.warn{ border-color: rgba(247,201,72,.35); background: rgba(247,201,72,.14); }
+    .chip.ok{ border-color: rgba(66,211,146,.28); background: rgba(66,211,146,.10); }
+    .toggle{
+      display:flex; align-items:center; gap:8px;
+      border:1px solid rgba(255,255,255,.12);
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: rgba(0,0,0,.20);
+      color: var(--muted);
+      font-size: 12.5px;
+      font-weight: 800;
+      cursor: pointer;
+      user-select:none;
+    }
+    .toggle input{ transform: translateY(1px); }
   </style>
 </head>
 
@@ -239,10 +330,14 @@
         <div class="logo" aria-hidden="true"></div>
         <div>
           <h1>Sorti SmartBin Dashboard</h1>
-          <div class="sub">Step 7: Real-time via SSE (<code>/api/stream</code>) + fallback.</div>
+          <div class="sub">Step 8: alert operativi + ordinamento intelligente + UI più “product”.</div>
         </div>
       </div>
-      <div class="pill"><span class="dot"></span><span id="liveText">Live</span></div>
+
+      <div class="pill">
+        <span id="connDot" class="dot"></span>
+        <span id="liveText">Live</span>
+      </div>
     </div>
 
     <div class="grid">
@@ -289,6 +384,25 @@
           <div class="pill"><span class="muted">Ultimo aggiornamento:</span> <b id="lastUpdated">—</b></div>
           <div class="pill"><span class="muted">Cestini:</span> <b id="binsCount">—</b></div>
         </div>
+
+        <div class="quick">
+          <div class="quickLeft">
+            <span class="title">Azioni rapide</span>
+            <span id="alertSummary" class="chip ok">0 da svuotare</span>
+            <span class="muted small">Soglie:</span>
+            <span class="chip warn">Warn ≥ <b id="warnLabel">70%</b></span>
+            <span class="chip bad">Crit ≥ <b id="critLabel">85%</b></span>
+          </div>
+          <div class="quickRight">
+            <label class="toggle" title="Mostra solo bins in warning/critical">
+              <input type="checkbox" id="onlyAlerts">
+              Solo alert
+            </label>
+            <button class="btnGhost btnMini" id="btnEditThresholds">Modifica soglie</button>
+          </div>
+        </div>
+
+        <div id="alertsList" class="emptyState" style="display:none"></div>
 
         <div id="errBox" class="errBox"></div>
       </div>
@@ -352,7 +466,7 @@
     <div class="card" style="margin-top:16px">
       <div class="cardHeader">
         <div class="title">Cestini</div>
-        <div class="small muted">dati da /api/dashboard</div>
+        <div class="small muted">ordinati per priorità (crit → warn → ok)</div>
       </div>
 
       <table>
@@ -430,14 +544,52 @@
     let pollTimer = null;
     let lastUpdateTs = 0;
 
-    function setLive(text){
+    // Step 8 thresholds (editable)
+    const LS_THRESH = "sorti_thresholds_v1";
+    let thresholds = { warn: 70, critical: 85 };
+
+    function loadThresholds(){
+      try{
+        const raw = localStorage.getItem(LS_THRESH);
+        if (!raw) return;
+        const obj = JSON.parse(raw);
+        const w = Number(obj?.warn);
+        const c = Number(obj?.critical);
+        if (isFinite(w) && isFinite(c) && w > 0 && c > 0 && w < c && c <= 100){
+          thresholds = { warn: w, critical: c };
+        }
+      }catch{}
+    }
+    function saveThresholds(){
+      localStorage.setItem(LS_THRESH, JSON.stringify(thresholds));
+    }
+
+    function updateThresholdLabels(){
+      $("warnLabel").textContent = `${thresholds.warn}%`;
+      $("critLabel").textContent = `${thresholds.critical}%`;
+    }
+
+    function setConnState(state){
+      // state: realtime | polling | offline
+      const dot = $("connDot");
+      dot.classList.remove("warn","bad");
+      if (state === "realtime"){
+        dot.classList.remove("warn","bad");
+      } else if (state === "polling"){
+        dot.classList.add("warn");
+      } else {
+        dot.classList.add("bad");
+      }
+    }
+    function setLive(text, state){
       $("liveText").textContent = text;
+      if (state) setConnState(state);
     }
 
     function showError(msg){
       $("errBox").style.display = "block";
       $("errBox").textContent = msg;
-      setLive("Errore");
+      setLive("Errore", "offline");
     }
     function clearError(){
       $("errBox").style.display = "none";
@@ -502,9 +654,16 @@
 
     function fillBadge(fill){
       const f = Number(fill || 0);
-      if (f >= 85) return `<span class="badge bBAD">PIENO</span>`;
-      if (f >= 60) return `<span class="badge bWARN">QUASI PIENO</span>`;
+      if (f >= thresholds.critical) return `<span class="badge bBAD">PIENO</span>`;
+      if (f >= thresholds.warn) return `<span class="badge bWARN">QUASI PIENO</span>`;
       return `<span class="badge bOK">OK</span>`;
+    }
+
+    function priorityOf(fill){
+      const f = Number(fill || 0);
+      if (f >= thresholds.critical) return 2; // critical
+      if (f >= thresholds.warn) return 1;     // warn
+      return 0;                               // ok
     }
 
     // localStorage keys
@@ -519,7 +678,6 @@
       localStorage.setItem(LS_ADMIN, v);
       $("adminKeyInput").value = "";
       alert("Admin key salvata ✅");
-      // refresh immediato per includere recent_events
       refresh();
     };
 
@@ -529,6 +687,24 @@
       localStorage.setItem(LS_INGEST, v);
       $("ingestKeyInput").value = "";
       alert("Ingest key salvata ✅");
+    };
+
+    $("btnEditThresholds").onclick = () => {
+      const w = prompt("Soglia WARNING (%):", String(thresholds.warn));
+      if (w === null) return;
+      const c = prompt("Soglia CRITICAL (%):", String(thresholds.critical));
+      if (c === null) return;
+
+      const wn = Number(String(w).replace(",", ".").trim());
+      const cn = Number(String(c).replace(",", ".").trim());
+
+      if (!isFinite(wn) || !isFinite(cn) || wn <= 0 || cn <= 0 || wn >= cn || cn > 100){
+        return alert("Valori non validi. Regola: 0 < warn < critical ≤ 100");
+      }
+      thresholds = { warn: wn, critical: cn };
+      saveThresholds();
+      updateThresholdLabels();
+      refresh();
     };
 
     async function fetchJSON(url, opts={}){
@@ -555,7 +731,6 @@
       URL.revokeObjectURL(a.href);
     }
 
-    // modifica capacità (kg) per bin
     async function setCapacityKg(binId, currentCapacityG){
       try{
         if (!adminKey()) return alert("Manca Admin key (X-API-Key).");
@@ -587,7 +762,6 @@
     }
     window.setCapacityKg = setCapacityKg;
 
-    // Protected action: empty bin
     async function emptyBin(binId){
       try{
         if (!adminKey()) return alert("Manca Admin key (X-API-Key).");
@@ -618,7 +792,8 @@
         borderWidth:2,
         tension:.25,
         pointRadius:3,
-        pointHoverRadius:5
+        pointHoverRadius:5,
+        fill: true
       }]},
       options:{
         responsive:true, maintainAspectRatio:false,
@@ -654,13 +829,110 @@
       }
     });
 
-    // dashboard fetch unico (Step 6)
     async function fetchDashboard(days){
       const d = Math.max(1, Math.min(365, Number(days || 30)));
       const url = `/api/dashboard?days=${encodeURIComponent(d)}&events_limit=20`;
       const headers = {};
       if (adminKey()) headers["X-API-Key"] = adminKey();
       return await fetchJSON(url, { headers });
+    }
+
+    function stopPolling(){
+      if (pollTimer){
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    }
+    function startPollingFallback(){
+      if (pollTimer) return;
+      setLive("Live (polling)", "polling");
+      pollTimer = setInterval(() => refresh(), 10000);
+    }
+
+    function startSSE(){
+      try{
+        if (es) es.close();
+        stopPolling();
+
+        es = new EventSource("/api/stream");
+
+        es.addEventListener("hello", () => {
+          setLive("Live (realtime)", "realtime");
+          refresh();
+        });
+
+        es.addEventListener("update", () => {
+          const now = Date.now();
+          if (now - lastUpdateTs < 250) return;
+          lastUpdateTs = now;
+          setLive("Live (realtime)", "realtime");
+          refresh();
+        });
+
+        es.onerror = () => {
+          try { es.close(); } catch {}
+          es = null;
+          startPollingFallback();
+        };
+      } catch {
+        startPollingFallback();
+      }
+    }
+
+    function scrollToBin(binId){
+      const row = document.querySelector(`tr[data-bin="${CSS.escape(binId)}"]`);
+      if (!row) return;
+      row.scrollIntoView({ behavior: "smooth", block: "center" });
+      row.classList.remove("flash");
+      void row.offsetWidth; // restart anim
+      row.classList.add("flash");
+    }
+    window.scrollToBin = scrollToBin;
+
+    function renderQuickAlerts(bins){
+      const warn = thresholds.warn;
+      const crit = thresholds.critical;
+
+      const criticalBins = bins.filter(b => Number(b.fill_percent||0) >= crit);
+      const warnBins = bins.filter(b => Number(b.fill_percent||0) >= warn && Number(b.fill_percent||0) < crit);
+
+      const totalAlerts = criticalBins.length + warnBins.length;
+
+      const summary = $("alertSummary");
+      if (criticalBins.length > 0){
+        summary.className = "chip bad";
+        summary.innerHTML = `<b>${criticalBins.length}</b> critici`;
+      } else if (warnBins.length > 0){
+        summary.className = "chip warn";
+        summary.innerHTML = `<b>${warnBins.length}</b> warning`;
+      } else {
+        summary.className = "chip ok";
+        summary.textContent = "0 da svuotare";
+      }
+
+      const list = $("alertsList");
+      if (totalAlerts === 0){
+        list.style.display = "none";
+        list.textContent = "";
+        return;
+      }
+
+      const items = [
+        ...criticalBins.map(b => ({...b, _p:"crit"})),
+        ...warnBins.map(b => ({...b, _p:"warn"})),
+      ].sort((a,b) => Number(b.fill_percent||0) - Number(a.fill_percent||0));
+
+      const lines = items.slice(0, 8).map(b => {
+        const f = Math.round(Number(b.fill_percent||0));
+        const cls = b._p === "crit" ? "bad" : "warn";
+        const tag = b._p === "crit" ? "CRITICO" : "WARNING";
+        return `• <span class="chip ${cls}" style="cursor:pointer" onclick="scrollToBin('${b.bin_id}')">${tag}</span>
+                <b style="cursor:pointer" onclick="scrollToBin('${b.bin_id}')">${b.bin_id}</b>
+                — <span class="muted">${f}%</span>`;
+      }).join("\n");
+
+      list.style.display = "block";
+      list.textContent = `Bins da attenzionare:\n${lines}`;
     }
 
     async function refresh(){
@@ -676,11 +948,30 @@
         $("kpiTotalWeight").textContent = formatWeight(dash?.totals?.total_weight_g);
         $("kpiTotalCO2").textContent = formatCO2(dash?.totals?.total_co2_saved_g);
 
-        const bins = dash?.bins || [];
-        $("binsCount").textContent = bins.length.toString();
+        let bins = (dash?.bins || []).slice();
 
-        const binsSig = bins.map(b =>
-          `${b.bin_id}|${Number(b.capacity_g||0)}|${Number(b.current_weight_g||0)}|${b.last_seen||""}`
+        // Step 8: sort by priority (crit>warn>ok) then by fill desc
+        bins.sort((a,b) => {
+          const pa = priorityOf(a.fill_percent);
+          const pb = priorityOf(b.fill_percent);
+          if (pa !== pb) return pb - pa;
+          return Number(b.fill_percent||0) - Number(a.fill_percent||0);
+        });
+
+        // quick alerts panel
+        renderQuickAlerts(bins);
+
+        // filter only alerts if toggled
+        const onlyAlerts = !!$("onlyAlerts").checked;
+        if (onlyAlerts){
+          bins = bins.filter(b => priorityOf(b.fill_percent) > 0);
+        }
+
+        $("binsCount").textContent = (dash?.bins || []).length.toString();
+
+        // include filter flag in signature so table refreshes when toggling
+        const binsSig = (onlyAlerts ? "ONLYALERTS|" : "ALL|") + bins.map(b =>
+          `${b.bin_id}|${Number(b.capacity_g||0)}|${Number(b.current_weight_g||0)}|${b.last_seen||""}|${Number(b.fill_percent||0)}`
         ).join(";;");
 
         if (binsSig !== lastBinsSig){
@@ -697,8 +988,11 @@
             const capKg = Number(b.capacity_g||0) / 1000;
             const capKgTxt = (isFinite(capKg) ? (capKg < 100 ? capKg.toFixed(1) : Math.round(capKg).toString()) : "—");
 
+            const p = priorityOf(fill);
+            const priClass = (p === 2) ? "priCritical" : (p === 1) ? "priWarn" : "priOk";
+
             return `
-              <tr>
+              <tr class="${priClass}" data-bin="${b.bin_id}">
                 <td>${b.bin_id}</td>
                 <td>${wTxt}</td>
                 <td title="${cTxt}">${capKgTxt} kg</td>
@@ -709,14 +1003,14 @@
                 </td>
                 <td class="muted" title="${lastTitle}">${lastHuman}</td>
                 <td>
-                  <button class="btnGhost" onclick="setCapacityKg('${b.bin_id}', ${Number(b.capacity_g||0)})">Capacità (kg)</button>
-                  <button class="btnDanger" style="margin-left:8px" onclick="emptyBin('${b.bin_id}')">Segna svuotato</button>
+                  <button class="btnGhost btnMini" onclick="setCapacityKg('${b.bin_id}', ${Number(b.capacity_g||0)})">Capacità</button>
+                  <button class="btnDanger btnMini" style="margin-left:8px" onclick="emptyBin('${b.bin_id}')">Svuota</button>
                 </td>
               </tr>
             `;
           }).join("");
 
-          $("binsBody").innerHTML = rowsHTML;
+          $("binsBody").innerHTML = rowsHTML || `<tr><td colspan="6" class="muted">Nessun bin da mostrare (filtro attivo).</td></tr>`;
         }
 
         const daily = dash?.daily || [];
@@ -835,8 +1129,6 @@
           `riempimento: ${Math.round(resp.bin.fill_percent)}%` +
           (resp.duplicate ? `\n⚠️ Nota: evento DUPLICATO (event_id già visto)` : "");
 
-        // non serve refresh qui: arriverà SSE update,
-        // ma lo facciamo comunque in caso SSE sia down.
         await refresh();
       }catch(e){
         $("simResult").style.display = "none";
@@ -865,18 +1157,23 @@
     };
 
     $("rangeSel").onchange = () => refresh();
+    $("onlyAlerts").onchange = () => refresh();
 
+    // boot thresholds
+    loadThresholds();
+    updateThresholdLabels();
+
+    // realtime
+    function startPollingFallback(){
+      if (pollTimer) return;
+      setLive("Live (polling)", "polling");
+      pollTimer = setInterval(() => refresh(), 10000);
+    }
     function stopPolling(){
       if (pollTimer){
         clearInterval(pollTimer);
         pollTimer = null;
       }
-    }
-
-    function startPollingFallback(){
-      if (pollTimer) return;
-      setLive("Live (polling)");
-      pollTimer = setInterval(() => refresh(), 10000);
     }
 
     function startSSE(){
@@ -887,30 +1184,24 @@
         es = new EventSource("/api/stream");
 
         es.addEventListener("hello", () => {
-          setLive("Live (realtime)");
-          // refresh iniziale
+          setLive("Live (realtime)", "realtime");
           refresh();
         });
 
-        es.addEventListener("update", (ev) => {
-          // debounce: evitiamo refresh spam se arrivano tanti update ravvicinati
+        es.addEventListener("update", () => {
           const now = Date.now();
           if (now - lastUpdateTs < 250) return;
           lastUpdateTs = now;
-
-          // qui potresti usare ev.data per ottimizzare (update locale),
-          // ma per ora: refresh coerente e semplice.
+          setLive("Live (realtime)", "realtime");
           refresh();
-          setLive("Live (realtime)");
         });
 
         es.onerror = () => {
-          // se SSE cade, fallback
           try { es.close(); } catch {}
           es = null;
           startPollingFallback();
         };
-      } catch (e){
+      } catch {
         startPollingFallback();
       }
     }
@@ -919,13 +1210,13 @@
     refresh();
     startSSE();
 
-    // se la tab torna visibile, refresh immediato (ottimo per demo)
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) refresh();
     });
   </script>
 </body>
 </html>
+
 
 
 
