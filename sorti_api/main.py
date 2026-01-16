@@ -1,6 +1,7 @@
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone, timedelta
 import json
@@ -8,7 +9,9 @@ import os
 import csv
 import io
 import uuid
+import asyncio
 from pathlib import Path
+from typing import Any
 
 from .db import init_db, get_conn
 
@@ -57,6 +60,46 @@ def normalize_material(s: str) -> str:
     m = (s or "").strip().lower()
     m = m.replace("-", "_").replace(" ", "_")
     return MATERIAL_ALIASES.get(m, m)
+
+
+# =========================
+# SSE Broadcaster (Step 7)
+# =========================
+
+class SSEHub:
+    """
+    Hub super leggero:
+    - ogni client SSE ha una asyncio.Queue
+    - publish() push-a un messaggio JSON a tutte le queue
+    """
+    def __init__(self) -> None:
+        self._clients: set[asyncio.Queue[str]] = set()
+        self._lock = asyncio.Lock()
+
+    async def subscribe(self) -> asyncio.Queue[str]:
+        q: asyncio.Queue[str] = asyncio.Queue(maxsize=100)
+        async with self._lock:
+            self._clients.add(q)
+        return q
+
+    async def unsubscribe(self, q: asyncio.Queue[str]) -> None:
+        async with self._lock:
+            self._clients.discard(q)
+
+    def publish(self, payload: dict[str, Any]) -> None:
+        # Non await: push best-effort, drop se queue piena
+        try:
+            data = json.dumps(payload, ensure_ascii=False)
+        except Exception:
+            return
+        for q in list(self._clients):
+            try:
+                q.put_nowait(data)
+            except Exception:
+                pass
+
+
+hub = SSEHub()
 
 
 # =========================
@@ -146,6 +189,40 @@ def health():
 
 
 # =========================
+# Step 7: SSE stream realtime
+# =========================
+
+@app.get("/api/stream")
+async def stream(request: Request):
+    """
+    Server-Sent Events:
+    - manda eventi "update" quando qualcosa cambia
+    - keepalive per mantenere la connessione
+    """
+    q = await hub.subscribe()
+
+    async def gen():
+        try:
+            # hello event
+            yield "event: hello\ndata: {}\n\n"
+
+            while True:
+                if await request.is_disconnected():
+                    break
+
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=15.0)
+                    yield f"event: update\ndata: {msg}\n\n"
+                except asyncio.TimeoutError:
+                    # keepalive comment (non trigger-a onmessage)
+                    yield ":keepalive\n\n"
+        finally:
+            await hub.unsubscribe(q)
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+# =========================
 # Helper: daily aggregation DB-agnostico
 # =========================
 
@@ -204,6 +281,8 @@ def set_bin_config(
               last_seen=excluded.last_seen
         """, (bin_id, float(cfg.capacity_g), now))
 
+    # realtime update
+    hub.publish({"kind": "bin_config", "bin_id": bin_id, "ts": now})
     return {"ok": True, "bin_id": bin_id, "capacity_g": float(cfg.capacity_g)}
 
 
@@ -233,7 +312,6 @@ def add_event(
     ts = datetime.now(timezone.utc).isoformat()
 
     event_id = (ev.event_id or "").strip() or str(uuid.uuid4())
-
     duplicate = False
 
     with get_conn() as conn:
@@ -271,6 +349,18 @@ def add_event(
     capacity = float(row["capacity_g"])
     current = float(row["current_weight_g"])
     fill_percent = 0.0 if capacity <= 0 else min(100.0, (current / capacity) * 100.0)
+
+    # realtime update (anche se duplicato: last_seen cambia)
+    hub.publish({
+        "kind": "event",
+        "ts": ts,
+        "bin_id": ev.bin_id,
+        "material": material,
+        "weight_g": w_in,
+        "co2_saved_g": co2_saved_g,
+        "event_id": event_id,
+        "duplicate": duplicate,
+    })
 
     return {
         "ok": True,
@@ -411,7 +501,7 @@ def recent_events(
 
 
 # =========================
-# ✅ Step 6: endpoint unico dashboard
+# Step 6: endpoint unico dashboard
 # =========================
 
 @app.get("/api/dashboard")
@@ -422,15 +512,11 @@ def dashboard(
 ):
     days = max(1, min(int(days), 365))
     events_limit = max(1, min(int(events_limit), 200))
-
     is_admin = is_admin_key_valid(x_api_key)
 
-    # daily
     daily = compute_daily(days)
 
-    # totals + by_material + bins + recent_events in 1 conn
     with get_conn() as conn:
-        # totals
         trow = conn.execute("""
             SELECT
               COALESCE(SUM(weight_g), 0) AS total_weight_g,
@@ -443,7 +529,6 @@ def dashboard(
             "total_co2_saved_g": float(trow["total_co2_saved_g"]),
         }
 
-        # by material
         mats = conn.execute("""
             SELECT
               material,
@@ -459,7 +544,6 @@ def dashboard(
             for r in mats
         ]
 
-        # bins
         bvals = conn.execute("""
             SELECT bin_id, capacity_g, current_weight_g, last_seen
             FROM bins
@@ -479,7 +563,6 @@ def dashboard(
                 "last_seen": r["last_seen"],
             })
 
-        # recent events only if admin
         recent = []
         if is_admin:
             rows = conn.execute("""
@@ -488,7 +571,6 @@ def dashboard(
                 ORDER BY ts DESC
                 LIMIT ?
             """, (events_limit,)).fetchall()
-
             recent = [
                 {
                     "ts": r["ts"],
@@ -597,7 +679,10 @@ def empty_bin(
             (now, bin_id)
         )
 
+    hub.publish({"kind": "bin_empty", "bin_id": bin_id, "ts": now})
     return {"ok": True, "bin_id": bin_id, "emptied_at": now}
+
+
 
 
 
