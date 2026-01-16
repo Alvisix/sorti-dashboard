@@ -418,6 +418,11 @@
   <script>
     const $ = (id) => document.getElementById(id);
 
+    // Anti-overlap refresh + anti-flicker signatures
+    let refreshing = false;
+    let lastBinsSig = "";
+    let lastEventsSig = "";
+
     function showError(msg){
       $("errBox").style.display = "block";
       $("errBox").textContent = msg;
@@ -559,109 +564,142 @@
     });
 
     async function refresh(){
-      clearError();
-      const days = Number($("rangeSel").value || 30);
+      if (refreshing) return;
+      refreshing = true;
 
-      // totals
-      const totals = await fetchJSON("/api/stats/total");
-      $("kpiTotalWeight").textContent = formatWeight(totals.total_weight_g);
-      $("kpiTotalCO2").textContent = formatCO2(totals.total_co2_saved_g);
+      try{
+        clearError();
+        const days = Number($("rangeSel").value || 30);
 
-      // bins
-      const bins = await fetchJSON("/api/bins");
-      $("binsCount").textContent = bins.length.toString();
+        // totals
+        const totals = await fetchJSON("/api/stats/total");
+        $("kpiTotalWeight").textContent = formatWeight(totals.total_weight_g);
+        $("kpiTotalCO2").textContent = formatCO2(totals.total_co2_saved_g);
 
-      const body = $("binsBody");
-      body.innerHTML = "";
+        // bins
+        const bins = await fetchJSON("/api/bins");
+        $("binsCount").textContent = bins.length.toString();
 
-      for (const b of bins){
-        const fill = Number(b.fill_percent || 0);
-        const wTxt = formatWeight(b.current_weight_g);
-        const cTxt = formatWeight(b.capacity_g);
-        const barWidth = Math.max(0, Math.min(100, fill));
+        const binsSig = bins.map(b =>
+          `${b.bin_id}|${Number(b.capacity_g||0)}|${Number(b.current_weight_g||0)}|${b.last_seen||""}`
+        ).join(";;");
 
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>${b.bin_id}</td>
-          <td>${wTxt}</td>
-          <td>${cTxt}</td>
-          <td>
-            <b>${Math.round(fill)}%</b>
-            ${fillBadge(fill)}
-            <span class="bar"><div style="width:${barWidth}%"></div></span>
-          </td>
-          <td class="muted">${isoToNice(b.last_seen)}</td>
-          <td>
-            <button class="btnDanger" onclick="emptyBin('${b.bin_id}')">Segna svuotato</button>
-          </td>
-        `;
-        body.appendChild(tr);
-      }
+        if (binsSig !== lastBinsSig){
+          lastBinsSig = binsSig;
 
-      // daily
-      const daily = await fetchJSON(`/api/stats/daily?days=${days}`);
-      const rangeW = daily.reduce((s,r)=>s+Number(r.weight_g||0), 0);
-      const rangeC = daily.reduce((s,r)=>s+Number(r.co2_saved_g||0), 0);
+          const rowsHTML = bins.map(b => {
+            const fill = Number(b.fill_percent || 0);
+            const wTxt = formatWeight(b.current_weight_g);
+            const cTxt = formatWeight(b.capacity_g);
+            const barWidth = Math.max(0, Math.min(100, fill));
+            return `
+              <tr>
+                <td>${b.bin_id}</td>
+                <td>${wTxt}</td>
+                <td>${cTxt}</td>
+                <td>
+                  <b>${Math.round(fill)}%</b>
+                  ${fillBadge(fill)}
+                  <span class="bar"><div style="width:${barWidth}%"></div></span>
+                </td>
+                <td class="muted">${isoToNice(b.last_seen)}</td>
+                <td>
+                  <button class="btnDanger" onclick="emptyBin('${b.bin_id}')">Segna svuotato</button>
+                </td>
+              </tr>
+            `;
+          }).join("");
 
-      $("kpiRangeWeight").textContent = formatWeight(rangeW);
-      $("kpiRangeCO2").textContent = formatCO2(rangeC);
+          $("binsBody").innerHTML = rowsHTML;
+        }
 
-      const hasLineData = daily.some(r => Number(r.co2_saved_g||0) > 0);
-      $("lineEmpty").style.display = hasLineData ? "none" : "block";
+        // daily
+        const daily = await fetchJSON(`/api/stats/daily?days=${days}`);
+        const rangeW = daily.reduce((s,r)=>s+Number(r.weight_g||0), 0);
+        const rangeC = daily.reduce((s,r)=>s+Number(r.co2_saved_g||0), 0);
 
-      lineChart.data.labels = daily.map(r=>r.day);
-      lineChart.data.datasets[0].data = daily.map(r=>Number(r.co2_saved_g||0));
-      lineChart.update();
+        $("kpiRangeWeight").textContent = formatWeight(rangeW);
+        $("kpiRangeCO2").textContent = formatCO2(rangeC);
 
-      // by material
-      const mats = await fetchJSON("/api/stats/by_material");
-      const hasPieData = mats.some(r => Number(r.weight_g||0) > 0);
-      $("pieEmpty").style.display = hasPieData ? "none" : "block";
+        const hasLineData = daily.some(r => Number(r.co2_saved_g||0) > 0);
+        $("lineEmpty").style.display = hasLineData ? "none" : "block";
 
-      pieChart.data.labels = mats.map(r=>r.material);
-      pieChart.data.datasets[0].data = mats.map(r=>Number(r.weight_g||0));
-      pieChart.update();
+        lineChart.data.labels = daily.map(r=>r.day);
+        lineChart.data.datasets[0].data = daily.map(r=>Number(r.co2_saved_g||0));
+        lineChart.update();
 
-      // recent events (admin)
-      const eventsBody = $("eventsBody");
-      const eventsEmpty = $("eventsEmpty");
-      eventsBody.innerHTML = "";
-      eventsEmpty.style.display = "none";
-      eventsEmpty.textContent = "";
+        // by material
+        const mats = await fetchJSON("/api/stats/by_material");
+        const hasPieData = mats.some(r => Number(r.weight_g||0) > 0);
+        $("pieEmpty").style.display = hasPieData ? "none" : "block";
 
-      if (!adminKey()){
-        eventsEmpty.style.display = "block";
-        eventsEmpty.textContent = "🔒 Inserisci e salva la Admin key per vedere gli ultimi eventi (log).";
-      } else {
-        try{
-          const events = await fetchJSON("/api/events/recent?limit=20", {
-            headers: { "X-API-Key": adminKey() }
-          });
+        pieChart.data.labels = mats.map(r=>r.material);
+        pieChart.data.datasets[0].data = mats.map(r=>Number(r.weight_g||0));
+        pieChart.update();
 
-          if (!events || events.length === 0){
+        // recent events (admin) - anti flicker
+        const eventsBody = $("eventsBody");
+        const eventsEmpty = $("eventsEmpty");
+
+        if (!adminKey()){
+          const msg = "🔒 Inserisci e salva la Admin key per vedere gli ultimi eventi (log).";
+          if (lastEventsSig !== "NOADMIN"){
+            lastEventsSig = "NOADMIN";
+            eventsBody.innerHTML = "";
             eventsEmpty.style.display = "block";
-            eventsEmpty.textContent = "Nessun evento registrato (ancora).";
-          } else {
-            for (const e of events){
-              const tr = document.createElement("tr");
-              tr.innerHTML = `
-                <td class="muted">${isoToNice(e.ts)}</td>
-                <td><b>${e.bin_id}</b></td>
-                <td>${e.material}</td>
-                <td>${formatWeight(e.weight_g)}</td>
-                <td>${formatCO2(e.co2_saved_g)}</td>
-                <td class="mono" style="text-align:right" title="${e.event_id || ""}">${shortId(e.event_id)}</td>
-              `;
-              eventsBody.appendChild(tr);
+            eventsEmpty.textContent = msg;
+          }
+        } else {
+          try{
+            const events = await fetchJSON("/api/events/recent?limit=20", {
+              headers: { "X-API-Key": adminKey() }
+            });
+
+            const eventsSig = (events || []).map(e =>
+              `${e.ts||""}|${e.bin_id||""}|${e.material||""}|${Number(e.weight_g||0)}|${Number(e.co2_saved_g||0)}|${e.event_id||""}`
+            ).join(";;");
+
+            if (eventsSig !== lastEventsSig){
+              lastEventsSig = eventsSig;
+
+              if (!events || events.length === 0){
+                eventsBody.innerHTML = "";
+                eventsEmpty.style.display = "block";
+                eventsEmpty.textContent = "Nessun evento registrato (ancora).";
+              } else {
+                eventsEmpty.style.display = "none";
+                eventsEmpty.textContent = "";
+
+                const rowsHTML = events.map(e => `
+                  <tr>
+                    <td class="muted">${isoToNice(e.ts)}</td>
+                    <td><b>${e.bin_id}</b></td>
+                    <td>${e.material}</td>
+                    <td>${formatWeight(e.weight_g)}</td>
+                    <td>${formatCO2(e.co2_saved_g)}</td>
+                    <td class="mono" style="text-align:right" title="${e.event_id || ""}">${shortId(e.event_id)}</td>
+                  </tr>
+                `).join("");
+
+                eventsBody.innerHTML = rowsHTML;
+              }
+            }
+          } catch (err){
+            const msg = "Errore nel caricare gli ultimi eventi (controlla Admin key).\n\n" + (err?.message || String(err));
+            const sig = "ERR:" + msg;
+            if (lastEventsSig !== sig){
+              lastEventsSig = sig;
+              eventsBody.innerHTML = "";
+              eventsEmpty.style.display = "block";
+              eventsEmpty.textContent = msg;
             }
           }
-        } catch (err){
-          eventsEmpty.style.display = "block";
-          eventsEmpty.textContent = "Errore nel caricare gli ultimi eventi (controlla Admin key).\n\n" + (err?.message || String(err));
         }
-      }
 
-      $("lastUpdated").textContent = new Date().toLocaleString();
+        $("lastUpdated").textContent = new Date().toLocaleString();
+      } finally {
+        refreshing = false;
+      }
     }
 
     // Protected actions
@@ -748,6 +786,8 @@
   </script>
 </body>
 </html>
+
+
 
 
 
