@@ -48,15 +48,23 @@ class BinConfigIn(BaseModel):
 app = FastAPI(title="Sorti SmartBin Tracker")
 
 # =========================
-# Sicurezza: API KEY
+# Sicurezza: 2 chiavi separate
 # =========================
+# Admin: svuota bin, export CSV, config capacità
+ADMIN_KEY = os.getenv("SORTI_ADMIN_KEY", "SORTI-DEMO-KEY-BINARO-2026-01")
 
-API_KEY = os.getenv("SORTI_API_KEY", "SORTI-DEMO-KEY-BINARO-2026-01")
+# Ingest: SOLO invio eventi (Raspberry / simulazioni)
+INGEST_KEY = os.getenv("SORTI_INGEST_KEY", "SORTI-DEMO-KEY-BINARO-2026-01")
 
 
-def require_api_key(x_api_key: str | None) -> None:
-    if x_api_key != API_KEY:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+def require_admin_key(x_api_key: str | None) -> None:
+    if x_api_key != ADMIN_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized (admin)")
+
+
+def require_ingest_key(x_ingest_key: str | None) -> None:
+    if x_ingest_key != INGEST_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized (ingest)")
 
 
 # =========================
@@ -88,22 +96,28 @@ def home():
     return HTMLResponse(
         "<h2>Sorti server attivo ✅</h2>"
         "<p>Non trovo <code>sorti_api/static/index.html</code>. "
-        "Crea la dashboard oppure usa <a href='/docs'>/docs</a> per testare le API.</p>"
+        "Crea la dashboard oppure usa <a href='/docs'>/docs</a>.</p>"
     )
 
 
 # =========================
-# Helper: calcolo daily (DB-agnostico)
+# Healthcheck (utile per Render)
+# =========================
+
+@app.get("/health")
+def health():
+    # prova una query banalissima
+    with get_conn() as conn:
+        conn.execute("SELECT 1").fetchone()
+    return {"ok": True}
+
+
+# =========================
+# Helper: daily aggregation DB-agnostico
 # =========================
 
 def compute_daily(days: int) -> list[dict]:
-    """
-    Aggrega per giorno gli eventi degli ultimi N giorni.
-    DB-agnostico: non usa funzioni SQL tipo substr()/datetime('now'...).
-    Funziona con SQLite e Postgres.
-    """
     days = max(1, min(int(days), 365))
-
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     cutoff_iso = cutoff.isoformat()
 
@@ -115,15 +129,13 @@ def compute_daily(days: int) -> list[dict]:
             ORDER BY ts ASC
         """, (cutoff_iso,)).fetchall()
 
-    agg = {}
+    agg: dict[str, dict] = {}
     for r in rows:
         ts_val = r["ts"]
-
-        # psycopg può restituire datetime, sqlite restituisce str
         if isinstance(ts_val, datetime):
             day = ts_val.date().isoformat()
         else:
-            day = str(ts_val)[:10]  # "YYYY-MM-DD" da ISO string
+            day = str(ts_val)[:10]
 
         w = float(r["weight_g"] or 0)
         c = float(r["co2_saved_g"] or 0)
@@ -138,7 +150,7 @@ def compute_daily(days: int) -> list[dict]:
 
 
 # =========================
-# API: configura cestino (PROTETTO)
+# API: configura cestino (ADMIN)
 # =========================
 
 @app.post("/api/bins/{bin_id}/config")
@@ -147,8 +159,7 @@ def set_bin_config(
     cfg: BinConfigIn,
     x_api_key: str | None = Header(default=None),
 ):
-    require_api_key(x_api_key)
-
+    require_admin_key(x_api_key)
     now = datetime.now(timezone.utc).isoformat()
 
     with get_conn() as conn:
@@ -160,19 +171,19 @@ def set_bin_config(
               last_seen=excluded.last_seen
         """, (bin_id, float(cfg.capacity_g), now))
 
-    return {"ok": True, "bin_id": bin_id, "capacity_g": cfg.capacity_g}
+    return {"ok": True, "bin_id": bin_id, "capacity_g": float(cfg.capacity_g)}
 
 
 # =========================
-# API: aggiungi evento (PROTETTO)
+# API: aggiungi evento (INGEST)
 # =========================
 
 @app.post("/api/event")
 def add_event(
     ev: EventIn,
-    x_api_key: str | None = Header(default=None),
+    x_ingest_key: str | None = Header(default=None),
 ):
-    require_api_key(x_api_key)
+    require_ingest_key(x_ingest_key)
 
     factors = load_factors()
     material = ev.material.strip().lower()
@@ -185,14 +196,14 @@ def add_event(
     ts = datetime.now(timezone.utc).isoformat()
 
     with get_conn() as conn:
-        # crea bin se manca
+        # crea bin se manca (capacity default 10000g)
         conn.execute("""
             INSERT INTO bins(bin_id, capacity_g, current_weight_g, last_seen)
             VALUES(?, 10000, 0, ?)
             ON CONFLICT(bin_id) DO UPDATE SET last_seen=excluded.last_seen
         """, (ev.bin_id, ts))
 
-        # evento
+        # salva evento
         conn.execute("""
             INSERT INTO events(ts, bin_id, material, weight_g, co2_saved_g)
             VALUES(?, ?, ?, ?, ?)
@@ -205,6 +216,7 @@ def add_event(
             WHERE bin_id=?
         """, (float(ev.weight_g), ts, ev.bin_id))
 
+        # leggi stato
         row = conn.execute(
             "SELECT capacity_g, current_weight_g FROM bins WHERE bin_id=?",
             (ev.bin_id,)
@@ -219,7 +231,7 @@ def add_event(
         "ts": ts,
         "bin_id": ev.bin_id,
         "material": material,
-        "weight_g": ev.weight_g,
+        "weight_g": float(ev.weight_g),
         "factor_gco2_per_g": factor,
         "co2_saved_g": co2_saved_g,
         "bin": {
@@ -237,26 +249,25 @@ def add_event(
 @app.get("/api/bins")
 def list_bins():
     with get_conn() as conn:
-        bins = conn.execute("""
+        rows = conn.execute("""
             SELECT bin_id, capacity_g, current_weight_g, last_seen
             FROM bins
             ORDER BY bin_id
         """).fetchall()
 
     out = []
-    for b in bins:
-        capacity = float(b["capacity_g"])
-        current = float(b["current_weight_g"])
+    for r in rows:
+        capacity = float(r["capacity_g"])
+        current = float(r["current_weight_g"])
         fill_percent = 0.0 if capacity <= 0 else min(100.0, (current / capacity) * 100.0)
 
         out.append({
-            "bin_id": b["bin_id"],
+            "bin_id": r["bin_id"],
             "capacity_g": capacity,
             "current_weight_g": current,
             "fill_percent": fill_percent,
-            "last_seen": b["last_seen"]
+            "last_seen": r["last_seen"]
         })
-
     return out
 
 
@@ -281,7 +292,7 @@ def stats_total():
 
 
 # =========================
-# Report per materiale (LIBERO)
+# API: report per materiale (LIBERO)
 # =========================
 
 @app.get("/api/stats/by_material")
@@ -308,7 +319,7 @@ def stats_by_material():
 
 
 # =========================
-# Report giornaliero (LIBERO) - FIX POSTGRES
+# API: report giornaliero (LIBERO)
 # =========================
 
 @app.get("/api/stats/daily")
@@ -317,14 +328,14 @@ def stats_daily(days: int = 30):
 
 
 # =========================
-# Export CSV eventi (PROTETTO)
+# Export CSV eventi (ADMIN)
 # =========================
 
 @app.get("/api/export/events.csv")
 def export_events_csv(
     x_api_key: str | None = Header(default=None),
 ):
-    require_api_key(x_api_key)
+    require_admin_key(x_api_key)
 
     with get_conn() as conn:
         rows = conn.execute("""
@@ -347,7 +358,7 @@ def export_events_csv(
 
 
 # =========================
-# Export CSV daily (PROTETTO)
+# Export CSV giornaliero (ADMIN)
 # =========================
 
 @app.get("/api/export/daily.csv")
@@ -355,8 +366,7 @@ def export_daily_csv(
     days: int = 30,
     x_api_key: str | None = Header(default=None),
 ):
-    require_api_key(x_api_key)
-
+    require_admin_key(x_api_key)
     rows = compute_daily(days)
 
     buf = io.StringIO()
@@ -374,7 +384,7 @@ def export_daily_csv(
 
 
 # =========================
-# Svuota bin (PROTETTO) - azzera solo peso bin
+# Svuota bin (ADMIN)
 # =========================
 
 @app.post("/api/bins/{bin_id}/empty")
@@ -382,7 +392,7 @@ def empty_bin(
     bin_id: str,
     x_api_key: str | None = Header(default=None),
 ):
-    require_api_key(x_api_key)
+    require_admin_key(x_api_key)
 
     now = datetime.now(timezone.utc).isoformat()
 
@@ -401,3 +411,4 @@ def empty_bin(
         )
 
     return {"ok": True, "bin_id": bin_id, "emptied_at": now}
+
