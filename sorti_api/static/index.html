@@ -239,7 +239,7 @@
         <div class="logo" aria-hidden="true"></div>
         <div>
           <h1>Sorti SmartBin Dashboard</h1>
-          <div class="sub">Step 6: refresh con singola chiamata <code>/api/dashboard</code>.</div>
+          <div class="sub">Step 7: Real-time via SSE (<code>/api/stream</code>) + fallback.</div>
         </div>
       </div>
       <div class="pill"><span class="dot"></span><span id="liveText">Live</span></div>
@@ -342,8 +342,8 @@
         </div>
 
         <div class="small muted" style="margin-top:12px; line-height:1.35">
-          • Il Raspberry userà <b>solo</b> la ingest key per <code>POST /api/event</code><br>
-          • Admin key serve per svuotare/export/modificare capacità e vedere log eventi
+          • Real-time: la UI si aggiorna appena arriva un evento (SSE).<br>
+          • Se SSE non va, passa automaticamente in polling.
         </div>
       </div>
     </div>
@@ -425,15 +425,23 @@
     let lastBinsSig = "";
     let lastEventsSig = "";
 
+    // SSE + fallback polling
+    let es = null;
+    let pollTimer = null;
+    let lastUpdateTs = 0;
+
+    function setLive(text){
+      $("liveText").textContent = text;
+    }
+
     function showError(msg){
       $("errBox").style.display = "block";
       $("errBox").textContent = msg;
-      $("liveText").textContent = "Errore";
+      setLive("Errore");
     }
     function clearError(){
       $("errBox").style.display = "none";
       $("errBox").textContent = "";
-      $("liveText").textContent = "Live";
     }
 
     function formatWeight(g){
@@ -454,14 +462,12 @@
       if (isNaN(d.getTime())) return null;
       return d;
     }
-
     function isoToNice(s){
       const d = isoToDate(s);
       if (!d) return (s || "—");
       return d.toLocaleString();
     }
 
-    // tempo umano
     function timeAgo(iso){
       const d = isoToDate(iso);
       if (!d) return "—";
@@ -513,6 +519,8 @@
       localStorage.setItem(LS_ADMIN, v);
       $("adminKeyInput").value = "";
       alert("Admin key salvata ✅");
+      // refresh immediato per includere recent_events
+      refresh();
     };
 
     $("btnSaveIngest").onclick = () => {
@@ -646,15 +654,12 @@
       }
     });
 
-    // ✅ Step 6: un solo fetch
+    // dashboard fetch unico (Step 6)
     async function fetchDashboard(days){
       const d = Math.max(1, Math.min(365, Number(days || 30)));
       const url = `/api/dashboard?days=${encodeURIComponent(d)}&events_limit=20`;
-
       const headers = {};
-      // Se ho admin key, la mando: così ottengo recent_events
       if (adminKey()) headers["X-API-Key"] = adminKey();
-
       return await fetchJSON(url, { headers });
     }
 
@@ -668,11 +673,9 @@
 
         const dash = await fetchDashboard(days);
 
-        // totals
         $("kpiTotalWeight").textContent = formatWeight(dash?.totals?.total_weight_g);
         $("kpiTotalCO2").textContent = formatCO2(dash?.totals?.total_co2_saved_g);
 
-        // bins
         const bins = dash?.bins || [];
         $("binsCount").textContent = bins.length.toString();
 
@@ -716,7 +719,6 @@
           $("binsBody").innerHTML = rowsHTML;
         }
 
-        // daily
         const daily = dash?.daily || [];
         const rangeW = daily.reduce((s,r)=>s+Number(r.weight_g||0), 0);
         const rangeC = daily.reduce((s,r)=>s+Number(r.co2_saved_g||0), 0);
@@ -724,23 +726,17 @@
         $("kpiRangeWeight").textContent = formatWeight(rangeW);
         $("kpiRangeCO2").textContent = formatCO2(rangeC);
 
-        const hasLineData = daily.some(r => Number(r.co2_saved_g||0) > 0);
-        $("lineEmpty").style.display = hasLineData ? "none" : "block";
-
+        $("lineEmpty").style.display = daily.some(r => Number(r.co2_saved_g||0) > 0) ? "none" : "block";
         lineChart.data.labels = daily.map(r=>r.day);
         lineChart.data.datasets[0].data = daily.map(r=>Number(r.co2_saved_g||0));
         lineChart.update();
 
-        // by material
         const mats = dash?.by_material || [];
-        const hasPieData = mats.some(r => Number(r.weight_g||0) > 0);
-        $("pieEmpty").style.display = hasPieData ? "none" : "block";
-
+        $("pieEmpty").style.display = mats.some(r => Number(r.weight_g||0) > 0) ? "none" : "block";
         pieChart.data.labels = mats.map(r=>r.material);
         pieChart.data.datasets[0].data = mats.map(r=>Number(r.weight_g||0));
         pieChart.update();
 
-        // recent events: arrivano solo se admin key valida
         const eventsBody = $("eventsBody");
         const eventsEmpty = $("eventsEmpty");
 
@@ -807,7 +803,7 @@
       }
     }
 
-    // Simulator event (continua ad usare POST /api/event)
+    // Simulator event (POST /api/event)
     $("btnSimEvent").onclick = async () => {
       try{
         if (!ingestKey()) return alert("Manca Ingest key (X-Ingest-Key).");
@@ -839,6 +835,8 @@
           `riempimento: ${Math.round(resp.bin.fill_percent)}%` +
           (resp.duplicate ? `\n⚠️ Nota: evento DUPLICATO (event_id già visto)` : "");
 
+        // non serve refresh qui: arriverà SSE update,
+        // ma lo facciamo comunque in caso SSE sia down.
         await refresh();
       }catch(e){
         $("simResult").style.display = "none";
@@ -868,11 +866,67 @@
 
     $("rangeSel").onchange = () => refresh();
 
+    function stopPolling(){
+      if (pollTimer){
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    }
+
+    function startPollingFallback(){
+      if (pollTimer) return;
+      setLive("Live (polling)");
+      pollTimer = setInterval(() => refresh(), 10000);
+    }
+
+    function startSSE(){
+      try{
+        if (es) es.close();
+        stopPolling();
+
+        es = new EventSource("/api/stream");
+
+        es.addEventListener("hello", () => {
+          setLive("Live (realtime)");
+          // refresh iniziale
+          refresh();
+        });
+
+        es.addEventListener("update", (ev) => {
+          // debounce: evitiamo refresh spam se arrivano tanti update ravvicinati
+          const now = Date.now();
+          if (now - lastUpdateTs < 250) return;
+          lastUpdateTs = now;
+
+          // qui potresti usare ev.data per ottimizzare (update locale),
+          // ma per ora: refresh coerente e semplice.
+          refresh();
+          setLive("Live (realtime)");
+        });
+
+        es.onerror = () => {
+          // se SSE cade, fallback
+          try { es.close(); } catch {}
+          es = null;
+          startPollingFallback();
+        };
+      } catch (e){
+        startPollingFallback();
+      }
+    }
+
+    // Start
     refresh();
-    setInterval(() => refresh(), 5000);
+    startSSE();
+
+    // se la tab torna visibile, refresh immediato (ottimo per demo)
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) refresh();
+    });
   </script>
 </body>
 </html>
+
 
 
 
