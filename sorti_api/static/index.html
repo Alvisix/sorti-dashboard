@@ -129,6 +129,10 @@
       background: rgba(255,93,93,.14);
       border:1px solid rgba(255,93,93,.40);
     }
+    .btnGhost{
+      background: rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.16);
+    }
 
     .errBox{
       display:none;
@@ -142,7 +146,6 @@
       white-space:pre-wrap;
     }
 
-    /* Table */
     table{width:100%; border-collapse:separate; border-spacing:0 10px}
     thead th{
       text-align:left;
@@ -223,7 +226,6 @@
       white-space: pre-wrap;
     }
 
-    /* Recent events table tweaks */
     .eventsTable thead th:last-child{ text-align:right; }
     .eventsTable tbody tr td:first-child{ font-weight: 800; }
     .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
@@ -237,7 +239,7 @@
         <div class="logo" aria-hidden="true"></div>
         <div>
           <h1>Sorti SmartBin Dashboard</h1>
-          <div class="sub">Ora con ingest key (Raspberry-ready) + simulatore eventi integrato.</div>
+          <div class="sub">Ingest Raspberry-ready + log eventi + gestione capacità (kg).</div>
         </div>
       </div>
       <div class="pill"><span class="dot"></span><span id="liveText">Live</span></div>
@@ -341,7 +343,7 @@
 
         <div class="small muted" style="margin-top:12px; line-height:1.35">
           • Il Raspberry userà <b>solo</b> la ingest key per <code>POST /api/event</code><br>
-          • Tu usi admin key per svuotare/export/config capacità + vedere log eventi
+          • Admin key serve per svuotare/export/modificare capacità e vedere log eventi
         </div>
       </div>
     </div>
@@ -368,7 +370,7 @@
       </table>
     </div>
 
-    <!-- Recent events (Step 3) -->
+    <!-- Recent events -->
     <div class="card" style="margin-top:16px">
       <div class="cardHeader">
         <div class="title">Ultimi eventi (admin)</div>
@@ -446,11 +448,43 @@
     }
     const formatCO2 = formatWeight;
 
-    function isoToNice(s){
-      if (!s) return "—";
+    function isoToDate(s){
+      if (!s) return null;
       const d = new Date(s);
-      if (isNaN(d.getTime())) return s;
+      if (isNaN(d.getTime())) return null;
+      return d;
+    }
+
+    function isoToNice(s){
+      const d = isoToDate(s);
+      if (!d) return (s || "—");
       return d.toLocaleString();
+    }
+
+    // Step 5: "tempo umano"
+    function timeAgo(iso){
+      const d = isoToDate(iso);
+      if (!d) return "—";
+      const now = new Date();
+      let diff = Math.floor((now - d) / 1000); // sec
+      if (!isFinite(diff)) return "—";
+      if (diff < 0) diff = 0;
+
+      if (diff < 10) return "adesso";
+      if (diff < 60) return `${diff}s fa`;
+      const m = Math.floor(diff/60);
+      if (m < 60) return `${m} min fa`;
+      const h = Math.floor(m/60);
+      if (h < 24) return `${h} h fa`;
+      const days = Math.floor(h/24);
+      if (days === 1) return "ieri";
+      if (days < 7) return `${days} gg fa`;
+      const w = Math.floor(days/7);
+      if (w < 5) return `${w} sett fa`;
+      const mo = Math.floor(days/30);
+      if (mo < 12) return `${mo} mesi fa`;
+      const y = Math.floor(days/365);
+      return `${y} anni fa`;
     }
 
     function shortId(s){
@@ -470,7 +504,6 @@
     // localStorage keys
     const LS_ADMIN = "sorti_admin_key";
     const LS_INGEST = "sorti_ingest_key";
-
     function adminKey(){ return localStorage.getItem(LS_ADMIN) || ""; }
     function ingestKey(){ return localStorage.getItem(LS_INGEST) || ""; }
 
@@ -513,6 +546,38 @@
       a.remove();
       URL.revokeObjectURL(a.href);
     }
+
+    // Step 4: modifica capacità (kg) per bin
+    async function setCapacityKg(binId, currentCapacityG){
+      try{
+        if (!adminKey()) return alert("Manca Admin key (X-API-Key).");
+
+        const curKg = (Number(currentCapacityG||0) / 1000);
+        const proposed = (isFinite(curKg) && curKg > 0) ? curKg.toFixed(curKg < 100 ? 1 : 0) : "";
+        const input = prompt(`Imposta capacità per ${binId} (in kg):`, proposed);
+        if (input === null) return;
+
+        const kg = Number(String(input).replace(",", ".").trim());
+        if (!isFinite(kg) || kg <= 0) return alert("Valore non valido. Inserisci un numero > 0 (kg).");
+        if (kg > 10000) return alert("Valore troppo alto. Controlla (kg).");
+
+        const capacity_g = Math.round(kg * 1000);
+
+        await fetchJSON(`/api/bins/${encodeURIComponent(binId)}/config`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-API-Key": adminKey()
+          },
+          body: JSON.stringify({ capacity_g })
+        });
+
+        await refresh();
+      }catch(e){
+        alert("Errore modifica capacità:\n\n" + (e?.message || String(e)));
+      }
+    }
+    window.setCapacityKg = setCapacityKg;
 
     // Charts
     Chart.defaults.color = "rgba(255,255,255,.82)";
@@ -592,19 +657,26 @@
             const wTxt = formatWeight(b.current_weight_g);
             const cTxt = formatWeight(b.capacity_g);
             const barWidth = Math.max(0, Math.min(100, fill));
+            const lastHuman = timeAgo(b.last_seen);
+            const lastTitle = isoToNice(b.last_seen);
+
+            const capKg = Number(b.capacity_g||0) / 1000;
+            const capKgTxt = (isFinite(capKg) ? (capKg < 100 ? capKg.toFixed(1) : Math.round(capKg).toString()) : "—");
+
             return `
               <tr>
                 <td>${b.bin_id}</td>
                 <td>${wTxt}</td>
-                <td>${cTxt}</td>
+                <td title="${cTxt}">${capKgTxt} kg</td>
                 <td>
                   <b>${Math.round(fill)}%</b>
                   ${fillBadge(fill)}
                   <span class="bar"><div style="width:${barWidth}%"></div></span>
                 </td>
-                <td class="muted">${isoToNice(b.last_seen)}</td>
+                <td class="muted" title="${lastTitle}">${lastHuman}</td>
                 <td>
-                  <button class="btnDanger" onclick="emptyBin('${b.bin_id}')">Segna svuotato</button>
+                  <button class="btnGhost" onclick="setCapacityKg('${b.bin_id}', ${Number(b.capacity_g||0)})">Capacità (kg)</button>
+                  <button class="btnDanger" style="margin-left:8px" onclick="emptyBin('${b.bin_id}')">Segna svuotato</button>
                 </td>
               </tr>
             `;
@@ -637,7 +709,7 @@
         pieChart.data.datasets[0].data = mats.map(r=>Number(r.weight_g||0));
         pieChart.update();
 
-        // recent events (admin) - anti flicker
+        // recent events (admin) - anti flicker + time ago
         const eventsBody = $("eventsBody");
         const eventsEmpty = $("eventsEmpty");
 
@@ -670,16 +742,20 @@
                 eventsEmpty.style.display = "none";
                 eventsEmpty.textContent = "";
 
-                const rowsHTML = events.map(e => `
-                  <tr>
-                    <td class="muted">${isoToNice(e.ts)}</td>
-                    <td><b>${e.bin_id}</b></td>
-                    <td>${e.material}</td>
-                    <td>${formatWeight(e.weight_g)}</td>
-                    <td>${formatCO2(e.co2_saved_g)}</td>
-                    <td class="mono" style="text-align:right" title="${e.event_id || ""}">${shortId(e.event_id)}</td>
-                  </tr>
-                `).join("");
+                const rowsHTML = events.map(e => {
+                  const whenHuman = timeAgo(e.ts);
+                  const whenTitle = isoToNice(e.ts);
+                  return `
+                    <tr>
+                      <td class="muted" title="${whenTitle}">${whenHuman}</td>
+                      <td><b>${e.bin_id}</b></td>
+                      <td>${e.material}</td>
+                      <td>${formatWeight(e.weight_g)}</td>
+                      <td>${formatCO2(e.co2_saved_g)}</td>
+                      <td class="mono" style="text-align:right" title="${e.event_id || ""}">${shortId(e.event_id)}</td>
+                    </tr>
+                  `;
+                }).join("");
 
                 eventsBody.innerHTML = rowsHTML;
               }
@@ -786,6 +862,7 @@
   </script>
 </body>
 </html>
+
 
 
 
