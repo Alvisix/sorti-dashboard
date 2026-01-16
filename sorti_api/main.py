@@ -31,7 +31,6 @@ def load_factors() -> dict:
 # =========================
 # Material aliases (Step 2)
 # =========================
-# Mantieni qui gli alias più comuni che potrebbero arrivare da modelli / UI / raspberry.
 MATERIAL_ALIASES = {
     # plastica
     "plastic": "plastica",
@@ -61,7 +60,6 @@ MATERIAL_ALIASES = {
 
 def normalize_material(s: str) -> str:
     m = (s or "").strip().lower()
-    # normalizzazione semplice
     m = m.replace("-", "_").replace(" ", "_")
     return MATERIAL_ALIASES.get(m, m)
 
@@ -74,8 +72,11 @@ class EventIn(BaseModel):
     bin_id: str = Field(..., examples=["SORTI_001"])
     material: str = Field(..., examples=["plastica"])
     weight_g: float = Field(..., gt=0, examples=[18])
-    # Step 2: idempotenza - consigliato che il Raspberry lo mandi sempre (UUID)
-    event_id: str | None = Field(default=None, examples=["2f9c0a7e-2d3c-4c21-9d2c-45cf6c2b2c3e"])
+    # Step 2: idempotenza - meglio se il Raspberry lo manda sempre (UUID)
+    event_id: str | None = Field(
+        default=None,
+        examples=["2f9c0a7e-2d3c-4c21-9d2c-45cf6c2b2c3e"]
+    )
 
 
 class BinConfigIn(BaseModel):
@@ -222,14 +223,14 @@ def add_event(
 ):
     require_ingest_key(x_ingest_key)
 
-    # Sanity check (peso)
+    # Sanity check peso (1..5000g)
     w_in = float(ev.weight_g)
     if not (0 < w_in <= 5000):
         raise HTTPException(status_code=400, detail="weight_g fuori range (1..5000)")
 
     factors = load_factors()
-
     material = normalize_material(ev.material)
+
     if material not in factors:
         raise HTTPException(status_code=400, detail=f"Materiale sconosciuto: {material}")
 
@@ -237,20 +238,20 @@ def add_event(
     co2_saved_g = w_in * factor
     ts = datetime.now(timezone.utc).isoformat()
 
-    # event_id: se non arriva, lo genero (ma idempotenza vera = event_id dal Raspberry)
+    # event_id: se non arriva, lo genero (idempotenza vera = event_id dal Raspberry)
     event_id = (ev.event_id or "").strip() or str(uuid.uuid4())
 
     duplicate = False
 
     with get_conn() as conn:
-        # crea bin se manca (capacity default 10000g) + last_seen
+        # crea bin se manca (capacity default 10000g)
         conn.execute("""
             INSERT INTO bins(bin_id, capacity_g, current_weight_g, last_seen)
             VALUES(?, 10000, 0, ?)
             ON CONFLICT(bin_id) DO UPDATE SET last_seen=excluded.last_seen
         """, (ev.bin_id, ts))
 
-        # prova a inserire evento (idempotenza)
+        # inserisci evento (idempotenza su event_id)
         try:
             conn.execute("""
                 INSERT INTO events(ts, bin_id, material, weight_g, co2_saved_g, event_id)
@@ -265,19 +266,18 @@ def add_event(
             """, (w_in, ts, ev.bin_id))
 
         except Exception as e:
-            # Duplicate (unique event_id)
             msg = str(e).lower()
+            # riconosco errore unique su event_id
             if "unique" in msg and "event" in msg and "event_id" in msg:
                 duplicate = True
-                # aggiorno solo last_seen (opzionale, ma utile)
+                # aggiorno solo last_seen
                 conn.execute("""
                     UPDATE bins SET last_seen=? WHERE bin_id=?
                 """, (ts, ev.bin_id))
             else:
-                # errore vero
                 raise
 
-        # leggi stato bin
+        # leggi stato
         row = conn.execute(
             "SELECT capacity_g, current_weight_g FROM bins WHERE bin_id=?",
             (ev.bin_id,)
@@ -391,6 +391,50 @@ def stats_daily(days: int = 30):
 
 
 # =========================
+# API: ultimi eventi (ADMIN) - Step 3
+# =========================
+
+@app.get("/api/events/recent")
+def recent_events(
+    limit: int = 20,
+    bin_id: str | None = None,
+    x_api_key: str | None = Header(default=None),
+):
+    require_admin_key(x_api_key)
+
+    limit = max(1, min(int(limit), 200))
+
+    with get_conn() as conn:
+        if bin_id:
+            rows = conn.execute("""
+                SELECT ts, bin_id, material, weight_g, co2_saved_g, event_id
+                FROM events
+                WHERE bin_id = ?
+                ORDER BY ts DESC
+                LIMIT ?
+            """, (bin_id, limit)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT ts, bin_id, material, weight_g, co2_saved_g, event_id
+                FROM events
+                ORDER BY ts DESC
+                LIMIT ?
+            """, (limit,)).fetchall()
+
+    out = []
+    for r in rows:
+        out.append({
+            "ts": r["ts"],
+            "bin_id": r["bin_id"],
+            "material": r["material"],
+            "weight_g": float(r["weight_g"]),
+            "co2_saved_g": float(r["co2_saved_g"]),
+            "event_id": r["event_id"],
+        })
+    return out
+
+
+# =========================
 # Export CSV eventi (ADMIN)
 # =========================
 
@@ -411,7 +455,7 @@ def export_events_csv(
     w = csv.writer(buf)
     w.writerow(["ts", "bin_id", "material", "weight_g", "co2_saved_g", "event_id"])
     for r in rows:
-        w.writerow([r["ts"], r["bin_id"], r["material"], r["weight_g"], r["co2_saved_g"], r.get("event_id") if isinstance(r, dict) else r["event_id"]])
+        w.writerow([r["ts"], r["bin_id"], r["material"], r["weight_g"], r["co2_saved_g"], r["event_id"]])
 
     return Response(
         content=buf.getvalue(),
@@ -474,5 +518,7 @@ def empty_bin(
         )
 
     return {"ok": True, "bin_id": bin_id, "emptied_at": now}
+
+
 
 
