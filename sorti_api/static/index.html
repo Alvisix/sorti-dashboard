@@ -220,6 +220,7 @@
       background: rgba(0,0,0,.18);
       margin-top: 10px;
       font-size: 13px;
+      white-space: pre-wrap;
     }
   </style>
 </head>
@@ -307,10 +308,19 @@
         <div class="title" style="margin-bottom:8px">Simula evento (come Raspberry)</div>
         <div class="row">
           <input id="simBin" placeholder="bin_id (es: SORTI_001)" style="flex:1 1 180px" />
-          <input id="simMat" placeholder="materiale (plastica/carta/...)" style="flex:1 1 180px" />
+          <input id="simMat" list="matList" placeholder="materiale (es: plastica)" style="flex:1 1 180px" />
+          <datalist id="matList">
+            <option value="plastica"></option>
+            <option value="carta"></option>
+            <option value="vetro"></option>
+            <option value="metallo"></option>
+            <option value="organico"></option>
+          </datalist>
           <input id="simW" type="number" min="1" placeholder="grammi" style="width:120px" />
           <button id="btnSimEvent">Invia</button>
         </div>
+
+        <div id="simResult" class="emptyState" style="display:none"></div>
 
         <div class="sep"></div>
 
@@ -607,7 +617,7 @@
 
         if (!bin || !mat || !w) return alert("Compila bin_id, materiale e grammi.");
 
-        await fetchJSON("/api/event", {
+        const resp = await fetchJSON("/api/event", {
           method:"POST",
           headers:{
             "Content-Type":"application/json",
@@ -617,8 +627,20 @@
         });
 
         $("simW").value = "";
+
+        const r = $("simResult");
+        r.style.display = "block";
+        r.textContent =
+          `✅ Evento registrato\n` +
+          `bin: ${resp.bin_id}\n` +
+          `materiale: ${resp.material}\n` +
+          `peso: ${formatWeight(resp.weight_g)}\n` +
+          `CO₂ risparmiata: ${formatCO2(resp.co2_saved_g)}\n` +
+          `riempimento: ${Math.round(resp.bin.fill_percent)}%`;
+
         await refresh();
       }catch(e){
+        $("simResult").style.display = "none";
         alert("Errore invio evento:\n\n" + (e?.message || String(e)));
       }
     };
@@ -650,6 +672,8 @@
   </script>
 </body>
 </html>
+
+
 
 
 
