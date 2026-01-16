@@ -222,6 +222,11 @@
       font-size: 13px;
       white-space: pre-wrap;
     }
+
+    /* Recent events table tweaks */
+    .eventsTable thead th:last-child{ text-align:right; }
+    .eventsTable tbody tr td:first-child{ font-weight: 800; }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
   </style>
 </head>
 
@@ -336,7 +341,7 @@
 
         <div class="small muted" style="margin-top:12px; line-height:1.35">
           • Il Raspberry userà <b>solo</b> la ingest key per <code>POST /api/event</code><br>
-          • Tu usi admin key per svuotare/export/config capacità
+          • Tu usi admin key per svuotare/export/config capacità + vedere log eventi
         </div>
       </div>
     </div>
@@ -360,6 +365,30 @@
           </tr>
         </thead>
         <tbody id="binsBody"></tbody>
+      </table>
+    </div>
+
+    <!-- Recent events (Step 3) -->
+    <div class="card" style="margin-top:16px">
+      <div class="cardHeader">
+        <div class="title">Ultimi eventi (admin)</div>
+        <div class="small muted">/api/events/recent</div>
+      </div>
+
+      <div id="eventsEmpty" class="emptyState" style="display:none"></div>
+
+      <table class="eventsTable">
+        <thead>
+          <tr>
+            <th>Quando</th>
+            <th>Bin</th>
+            <th>Materiale</th>
+            <th>Peso</th>
+            <th>CO₂</th>
+            <th style="text-align:right">event_id</th>
+          </tr>
+        </thead>
+        <tbody id="eventsBody"></tbody>
       </table>
     </div>
 
@@ -417,6 +446,13 @@
       const d = new Date(s);
       if (isNaN(d.getTime())) return s;
       return d.toLocaleString();
+    }
+
+    function shortId(s){
+      if (!s) return "—";
+      const str = String(s);
+      if (str.length <= 10) return str;
+      return str.slice(0, 8) + "…" + str.slice(-6);
     }
 
     function fillBadge(fill){
@@ -586,6 +622,45 @@
       pieChart.data.datasets[0].data = mats.map(r=>Number(r.weight_g||0));
       pieChart.update();
 
+      // recent events (admin)
+      const eventsBody = $("eventsBody");
+      const eventsEmpty = $("eventsEmpty");
+      eventsBody.innerHTML = "";
+      eventsEmpty.style.display = "none";
+      eventsEmpty.textContent = "";
+
+      if (!adminKey()){
+        eventsEmpty.style.display = "block";
+        eventsEmpty.textContent = "🔒 Inserisci e salva la Admin key per vedere gli ultimi eventi (log).";
+      } else {
+        try{
+          const events = await fetchJSON("/api/events/recent?limit=20", {
+            headers: { "X-API-Key": adminKey() }
+          });
+
+          if (!events || events.length === 0){
+            eventsEmpty.style.display = "block";
+            eventsEmpty.textContent = "Nessun evento registrato (ancora).";
+          } else {
+            for (const e of events){
+              const tr = document.createElement("tr");
+              tr.innerHTML = `
+                <td class="muted">${isoToNice(e.ts)}</td>
+                <td><b>${e.bin_id}</b></td>
+                <td>${e.material}</td>
+                <td>${formatWeight(e.weight_g)}</td>
+                <td>${formatCO2(e.co2_saved_g)}</td>
+                <td class="mono" style="text-align:right" title="${e.event_id || ""}">${shortId(e.event_id)}</td>
+              `;
+              eventsBody.appendChild(tr);
+            }
+          }
+        } catch (err){
+          eventsEmpty.style.display = "block";
+          eventsEmpty.textContent = "Errore nel caricare gli ultimi eventi (controlla Admin key).\n\n" + (err?.message || String(err));
+        }
+      }
+
       $("lastUpdated").textContent = new Date().toLocaleString();
     }
 
@@ -636,7 +711,8 @@
           `materiale: ${resp.material}\n` +
           `peso: ${formatWeight(resp.weight_g)}\n` +
           `CO₂ risparmiata: ${formatCO2(resp.co2_saved_g)}\n` +
-          `riempimento: ${Math.round(resp.bin.fill_percent)}%`;
+          `riempimento: ${Math.round(resp.bin.fill_percent)}%` +
+          (resp.duplicate ? `\n⚠️ Nota: evento DUPLICATO (event_id già visto)` : "");
 
         await refresh();
       }catch(e){
@@ -672,6 +748,8 @@
   </script>
 </body>
 </html>
+
+
 
 
 
