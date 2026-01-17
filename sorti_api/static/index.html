@@ -249,7 +249,6 @@
     }
     tbody tr.priCritical td:first-child{ border-left-color: rgba(255,93,93,.95); }
     tbody tr.priWarn td:first-child{ border-left-color: rgba(247,201,72,.95); }
-    tbody tr.priOk td:first-child{ border-left-color: rgba(66,211,146,.0); }
 
     .fillWrap{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
     .fillPill{
@@ -469,6 +468,7 @@
       </div>
     </div>
 
+    <!-- ✅ RECENT EVENTS -->
     <div class="card" style="margin-top:16px">
       <div class="cardHeader">
         <div class="title">Recent events (admin)</div>
@@ -791,7 +791,7 @@
       list.textContent = `Da attenzionare:\n${lines}`;
     }
 
-    // Charts defaults
+    // Chart defaults
     Chart.defaults.color = "rgba(255,255,255,.82)";
     Chart.defaults.borderColor = "rgba(255,255,255,.08)";
     Chart.defaults.font.family = "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif";
@@ -929,6 +929,68 @@
       }
     }
 
+    function renderRecentEvents(dash){
+      const eventsBody = $("eventsBody");
+      const eventsEmpty = $("eventsEmpty");
+
+      const isAdmin = !!dash?.is_admin;
+      const events = dash?.recent_events || [];
+
+      if (!adminKey()){
+        const msg = "🔒 Inserisci e salva la Admin key per vedere gli ultimi eventi.";
+        if (lastEventsSig !== "NOADMIN"){
+          lastEventsSig = "NOADMIN";
+          eventsBody.innerHTML = "";
+          eventsEmpty.style.display = "block";
+          eventsEmpty.textContent = msg;
+        }
+        return;
+      }
+
+      if (!isAdmin){
+        const msg = "❌ Admin key non valida (401).";
+        if (lastEventsSig !== "BADADMIN"){
+          lastEventsSig = "BADADMIN";
+          eventsBody.innerHTML = "";
+          eventsEmpty.style.display = "block";
+          eventsEmpty.textContent = msg;
+        }
+        return;
+      }
+
+      const sig = (events || []).map(e =>
+        `${e.ts||""}|${e.bin_id||""}|${e.material||""}|${Number(e.weight_g||0)}|${Number(e.co2_saved_g||0)}|${e.event_id||""}`
+      ).join(";;");
+
+      if (sig === lastEventsSig) return;
+      lastEventsSig = sig;
+
+      if (!events || events.length === 0){
+        eventsBody.innerHTML = "";
+        eventsEmpty.style.display = "block";
+        eventsEmpty.textContent = "Nessun evento registrato (ancora).";
+        return;
+      }
+
+      eventsEmpty.style.display = "none";
+      eventsEmpty.textContent = "";
+
+      eventsBody.innerHTML = events.map(e => {
+        const whenHuman = timeAgo(e.ts);
+        const whenTitle = isoToNice(e.ts);
+        return `
+          <tr>
+            <td class="muted" title="${whenTitle}">${whenHuman}</td>
+            <td><b>${e.bin_id}</b></td>
+            <td>${e.material}</td>
+            <td>${formatWeight(e.weight_g)}</td>
+            <td>${formatCO2(e.co2_saved_g)}</td>
+            <td class="mono" style="text-align:right" title="${e.event_id || ""}">${shortId(e.event_id)}</td>
+          </tr>
+        `;
+      }).join("");
+    }
+
     async function refresh(){
       if (refreshing) return;
       refreshing = true;
@@ -975,7 +1037,7 @@
             const capKgTxt = (isFinite(capKg) ? (capKg < 100 ? capKg.toFixed(1) : Math.round(capKg).toString()) : "—");
 
             const p = priorityOf(fill);
-            const priClass = (p === 2) ? "priCritical" : (p === 1) ? "priWarn" : "priOk";
+            const priClass = (p === 2) ? "priCritical" : (p === 1) ? "priWarn" : "";
 
             return `
               <tr class="${priClass}">
@@ -1021,9 +1083,12 @@
         doughnutChart.data.datasets[0].data = mats.map(r=>Number(r.weight_g||0));
         doughnutChart.update();
 
+        // ✅ Recent events (admin)
+        renderRecentEvents(dash);
+
         $("lastUpdated").textContent = new Date().toLocaleString();
       } catch (e){
-        showError(e?.message || String(e));  // ✅ FIX: niente parentesi extra
+        showError(e?.message || String(e));
       } finally {
         refreshing = false;
       }
@@ -1090,6 +1155,8 @@
   </script>
 </body>
 </html>
+
+
 
 
 
