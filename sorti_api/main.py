@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -61,20 +61,13 @@ class BinKeyOut(BaseModel):
 # =========================
 # APP FastAPI
 # =========================
-
 app = FastAPI(title="Sorti SmartBin Tracker")
 
 # =========================
 # Sicurezza: 2 chiavi separate
 # =========================
-# Admin: svuota bin, export CSV, config capacità, gestione keys
 ADMIN_KEY = os.getenv("SORTI_ADMIN_KEY", "SORTI-DEMO-KEY-BINARO-2026-01")
-
-# Fallback ingest "legacy" (se un bin non ha ingest_key impostata)
 GLOBAL_INGEST_KEY = os.getenv("SORTI_INGEST_KEY", "SORTI-DEMO-KEY-BINARO-2026-01")
-
-# Rate limit (Step 12)
-# default: 60 eventi / minuto / ingest_key
 RATE_EVENTS_PER_MIN = int(os.getenv("SORTI_RATE_EVENTS_PER_MIN", "60"))
 
 
@@ -83,11 +76,14 @@ def require_admin_key(x_api_key: str | None) -> None:
         raise HTTPException(status_code=401, detail="Unauthorized (admin)")
 
 
+def is_admin(x_api_key: str | None) -> bool:
+    return (x_api_key == ADMIN_KEY)
+
+
 # =========================
 # Rate limiter semplice (in-memory)
 # =========================
-# Nota: su Render con più istanze non è perfetto, ma è già un buon "paraurti".
-_rl: dict[str, list[float]] = {}  # key -> timestamps
+_rl: dict[str, list[float]] = {}
 
 def rate_limit_or_429(key: str) -> None:
     now = time.time()
@@ -95,7 +91,6 @@ def rate_limit_or_429(key: str) -> None:
     limit = max(1, RATE_EVENTS_PER_MIN)
 
     arr = _rl.get(key, [])
-    # tieni solo ultimi 60s
     arr = [t for t in arr if (now - t) <= window]
 
     if len(arr) >= limit:
@@ -113,7 +108,7 @@ if STATIC_DIR.exists():
 
 
 # =========================
-# Startup: inizializza DB + migrazioni
+# Startup: inizializza DB
 # =========================
 @app.on_event("startup")
 def _startup():
@@ -127,7 +122,6 @@ def _startup():
 def home():
     if INDEX_HTML.exists():
         return HTMLResponse(INDEX_HTML.read_text(encoding="utf-8"))
-
     return HTMLResponse(
         "<h2>Sorti server attivo ✅</h2>"
         "<p>Non trovo <code>sorti_api/static/index.html</code>. "
@@ -136,7 +130,7 @@ def home():
 
 
 # =========================
-# Healthcheck (utile per Render)
+# Healthcheck
 # =========================
 @app.get("/health")
 def health():
@@ -146,7 +140,7 @@ def health():
 
 
 # =========================
-# Helper: daily aggregation DB-agnostico
+# Helper: daily aggregation
 # =========================
 def compute_daily(days: int) -> list[dict]:
     days = max(1, min(int(days), 365))
@@ -182,7 +176,7 @@ def compute_daily(days: int) -> list[dict]:
 
 
 # =========================
-# Step 12: per-bin ingest key resolution
+# Step 12: per-bin ingest key
 # =========================
 def resolve_bin_ingest_key(bin_id: str) -> str:
     with get_conn() as conn:
@@ -190,9 +184,10 @@ def resolve_bin_ingest_key(bin_id: str) -> str:
             "SELECT ingest_key FROM bins WHERE bin_id=?",
             (bin_id,)
         ).fetchone()
+
     if not row:
-        # sicurezza: se il bin non esiste, non auto-creo.
         raise HTTPException(status_code=404, detail="Bin non trovato (configura prima il bin)")
+
     k = row.get("ingest_key") if isinstance(row, dict) else row["ingest_key"]
     if k and str(k).strip():
         return str(k).strip()
@@ -207,7 +202,7 @@ def require_ingest_for_bin(bin_id: str, x_ingest_key: str | None) -> None:
 
 
 # =========================
-# API: configura cestino (ADMIN)
+# API: configura bin (ADMIN)
 # =========================
 @app.post("/api/bins/{bin_id}/config")
 def set_bin_config(
@@ -231,7 +226,7 @@ def set_bin_config(
 
 
 # =========================
-# Step 12: genera/ruota ingest key per bin (ADMIN)
+# Step 12: ruota ingest key bin (ADMIN)
 # =========================
 @app.post("/api/bins/{bin_id}/rotate_ingest_key", response_model=BinKeyOut)
 def rotate_ingest_key(
@@ -260,19 +255,17 @@ def rotate_ingest_key(
 
 
 # =========================
-# API: aggiungi evento (INGEST) — Step 10 + Step 12
+# API: aggiungi evento (INGEST)
 # =========================
 @app.post("/api/event")
 def add_event(
     ev: EventIn,
     x_ingest_key: str | None = Header(default=None),
 ):
-    # Step 12: validazione per-bin key + rate limit
     require_ingest_for_bin(ev.bin_id, x_ingest_key)
 
     factors = load_factors()
     material = ev.material.strip().lower()
-
     if material not in factors:
         raise HTTPException(status_code=400, detail=f"Materiale sconosciuto: {material}")
 
@@ -280,7 +273,6 @@ def add_event(
     co2_saved_g = float(ev.weight_g) * factor
     ts = datetime.now(timezone.utc).isoformat()
 
-    # Step 10: serializzo topk se presente
     topk_json = None
     if ev.topk is not None:
         try:
@@ -289,12 +281,8 @@ def add_event(
             topk_json = None
 
     with get_conn() as conn:
-        # aggiorna last_seen bin
-        conn.execute("""
-            UPDATE bins SET last_seen=? WHERE bin_id=?
-        """, (ts, ev.bin_id))
+        conn.execute("UPDATE bins SET last_seen=? WHERE bin_id=?", (ts, ev.bin_id))
 
-        # salva evento (con campi AI)
         conn.execute("""
             INSERT INTO events(
               ts, bin_id, material, weight_g, co2_saved_g,
@@ -306,14 +294,12 @@ def add_event(
             ev.source, ev.model_version, ev.confidence, topk_json, ev.image_ref
         ))
 
-        # aggiorna peso bin
         conn.execute("""
             UPDATE bins
             SET current_weight_g = current_weight_g + ?, last_seen=?
             WHERE bin_id=?
         """, (float(ev.weight_g), ts, ev.bin_id))
 
-        # leggi stato
         row = conn.execute(
             "SELECT capacity_g, current_weight_g FROM bins WHERE bin_id=?",
             (ev.bin_id,)
@@ -421,6 +407,77 @@ def stats_daily(days: int = 30):
 
 
 # =========================
+# ✅ NEW: recent events (ADMIN)
+# =========================
+@app.get("/api/events/recent")
+def recent_events(
+    limit: int = 20,
+    x_api_key: str | None = Header(default=None),
+):
+    require_admin_key(x_api_key)
+    limit = max(1, min(int(limit), 200))
+
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT id, ts, bin_id, material, weight_g, co2_saved_g,
+                   source, model_version, confidence, image_ref
+            FROM events
+            ORDER BY id DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+
+    out = []
+    for r in rows:
+        out.append({
+            "id": r["id"],
+            "ts": r["ts"],
+            "bin_id": r["bin_id"],
+            "material": r["material"],
+            "weight_g": float(r["weight_g"]),
+            "co2_saved_g": float(r["co2_saved_g"]),
+            "source": r.get("source") if isinstance(r, dict) else r["source"],
+            "model_version": r.get("model_version") if isinstance(r, dict) else r["model_version"],
+            "confidence": (float(r["confidence"]) if r.get("confidence") is not None else None) if isinstance(r, dict)
+                          else (float(r["confidence"]) if r["confidence"] is not None else None),
+            "image_ref": r.get("image_ref") if isinstance(r, dict) else r["image_ref"],
+        })
+    return out
+
+
+# =========================
+# ✅ NEW: dashboard aggregate (USATO DALLA UI)
+# =========================
+@app.get("/api/dashboard")
+def dashboard(
+    days: int = 30,
+    x_api_key: str | None = Header(default=None),
+):
+    # public parts
+    bins = list_bins()
+    totals = stats_total()
+    daily = stats_daily(days=days)
+    mats = stats_by_material()
+
+    # admin extras
+    admin = is_admin(x_api_key)
+    recent = []
+    if admin:
+        recent = recent_events(limit=20, x_api_key=x_api_key)
+
+    return {
+        "ok": True,
+        "days": max(1, min(int(days), 365)),
+        "is_admin": admin,
+        "totals": totals,
+        "bins": bins,
+        "daily": daily,
+        "by_material": mats,
+        "recent_events": recent,
+        "ts": datetime.now(timezone.utc).isoformat()
+    }
+
+
+# =========================
 # Export CSV eventi (ADMIN)
 # =========================
 @app.get("/api/export/events.csv")
@@ -501,6 +558,7 @@ def empty_bin(
         )
 
     return {"ok": True, "bin_id": bin_id, "emptied_at": now}
+
 
 
 
