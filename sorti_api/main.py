@@ -1,24 +1,22 @@
 from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
-from starlette.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone, timedelta
 import json
 import os
 import csv
 import io
-import uuid
-import asyncio
+import time
+import secrets
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from .db import init_db, get_conn
 
 # =========================
 # Percorsi del progetto
 # =========================
-
 APP_DIR = Path(__file__).resolve().parent
 FACTORS_PATH = APP_DIR / "co2_factors.json"
 STATIC_DIR = APP_DIR / "static"
@@ -32,77 +30,6 @@ def load_factors() -> dict:
 
 
 # =========================
-# Material aliases
-# =========================
-MATERIAL_ALIASES = {
-    "plastic": "plastica",
-    "plastico": "plastica",
-    "pet": "plastica",
-    "bottiglia_plastica": "plastica",
-    "bottle_plastic": "plastica",
-    "paper": "carta",
-    "cartone": "carta",
-    "cardboard": "carta",
-    "glass": "vetro",
-    "bottiglia_vetro": "vetro",
-    "metal": "metallo",
-    "alu": "metallo",
-    "alluminio": "metallo",
-    "acciaio": "metallo",
-    "lattina": "metallo",
-    "can": "metallo",
-    "organic": "organico",
-    "umido": "organico",
-}
-
-
-def normalize_material(s: str) -> str:
-    m = (s or "").strip().lower()
-    m = m.replace("-", "_").replace(" ", "_")
-    return MATERIAL_ALIASES.get(m, m)
-
-
-# =========================
-# SSE Broadcaster (Step 7)
-# =========================
-
-class SSEHub:
-    """
-    Hub super leggero:
-    - ogni client SSE ha una asyncio.Queue
-    - publish() push-a un messaggio JSON a tutte le queue
-    """
-    def __init__(self) -> None:
-        self._clients: set[asyncio.Queue[str]] = set()
-        self._lock = asyncio.Lock()
-
-    async def subscribe(self) -> asyncio.Queue[str]:
-        q: asyncio.Queue[str] = asyncio.Queue(maxsize=100)
-        async with self._lock:
-            self._clients.add(q)
-        return q
-
-    async def unsubscribe(self, q: asyncio.Queue[str]) -> None:
-        async with self._lock:
-            self._clients.discard(q)
-
-    def publish(self, payload: dict[str, Any]) -> None:
-        # Non await: push best-effort, drop se queue piena
-        try:
-            data = json.dumps(payload, ensure_ascii=False)
-        except Exception:
-            return
-        for q in list(self._clients):
-            try:
-                q.put_nowait(data)
-            except Exception:
-                pass
-
-
-hub = SSEHub()
-
-
-# =========================
 # Modelli dati (Pydantic)
 # =========================
 
@@ -110,11 +37,25 @@ class EventIn(BaseModel):
     bin_id: str = Field(..., examples=["SORTI_001"])
     material: str = Field(..., examples=["plastica"])
     weight_g: float = Field(..., gt=0, examples=[18])
-    event_id: str | None = Field(default=None, examples=["2f9c0a7e-2d3c-4c21-9d2c-45cf6c2b2c3e"])
+
+    # Step 10: AI-ready (opzionali)
+    source: Optional[str] = Field(default=None, examples=["raspberry", "simulator"])
+    model_version: Optional[str] = Field(default=None, examples=["mobilenet_v2_1.3"])
+    confidence: Optional[float] = Field(default=None, ge=0, le=1, examples=[0.87])
+    topk: Optional[list[dict[str, Any]]] = Field(
+        default=None,
+        examples=[[{"label": "plastica", "p": 0.87}, {"label": "metallo", "p": 0.09}]]
+    )
+    image_ref: Optional[str] = Field(default=None, examples=["frame_2026-01-18T10:22:11Z.jpg"])
 
 
 class BinConfigIn(BaseModel):
     capacity_g: float = Field(..., gt=0, examples=[120000])
+
+
+class BinKeyOut(BaseModel):
+    bin_id: str
+    ingest_key: str
 
 
 # =========================
@@ -126,8 +67,15 @@ app = FastAPI(title="Sorti SmartBin Tracker")
 # =========================
 # Sicurezza: 2 chiavi separate
 # =========================
+# Admin: svuota bin, export CSV, config capacità, gestione keys
 ADMIN_KEY = os.getenv("SORTI_ADMIN_KEY", "SORTI-DEMO-KEY-BINARO-2026-01")
-INGEST_KEY = os.getenv("SORTI_INGEST_KEY", "SORTI-DEMO-KEY-BINARO-2026-01")
+
+# Fallback ingest "legacy" (se un bin non ha ingest_key impostata)
+GLOBAL_INGEST_KEY = os.getenv("SORTI_INGEST_KEY", "SORTI-DEMO-KEY-BINARO-2026-01")
+
+# Rate limit (Step 12)
+# default: 60 eventi / minuto / ingest_key
+RATE_EVENTS_PER_MIN = int(os.getenv("SORTI_RATE_EVENTS_PER_MIN", "60"))
 
 
 def require_admin_key(x_api_key: str | None) -> None:
@@ -135,27 +83,38 @@ def require_admin_key(x_api_key: str | None) -> None:
         raise HTTPException(status_code=401, detail="Unauthorized (admin)")
 
 
-def require_ingest_key(x_ingest_key: str | None) -> None:
-    if x_ingest_key != INGEST_KEY:
-        raise HTTPException(status_code=401, detail="Unauthorized (ingest)")
+# =========================
+# Rate limiter semplice (in-memory)
+# =========================
+# Nota: su Render con più istanze non è perfetto, ma è già un buon "paraurti".
+_rl: dict[str, list[float]] = {}  # key -> timestamps
 
+def rate_limit_or_429(key: str) -> None:
+    now = time.time()
+    window = 60.0
+    limit = max(1, RATE_EVENTS_PER_MIN)
 
-def is_admin_key_valid(x_api_key: str | None) -> bool:
-    return x_api_key == ADMIN_KEY
+    arr = _rl.get(key, [])
+    # tieni solo ultimi 60s
+    arr = [t for t in arr if (now - t) <= window]
+
+    if len(arr) >= limit:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded (ingest)")
+
+    arr.append(now)
+    _rl[key] = arr
 
 
 # =========================
 # Static files (dashboard)
 # =========================
-
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 # =========================
-# Startup: inizializza DB
+# Startup: inizializza DB + migrazioni
 # =========================
-
 @app.on_event("startup")
 def _startup():
     init_db()
@@ -164,7 +123,6 @@ def _startup():
 # =========================
 # Pagina principale
 # =========================
-
 @app.get("/", response_class=HTMLResponse)
 def home():
     if INDEX_HTML.exists():
@@ -178,9 +136,8 @@ def home():
 
 
 # =========================
-# Healthcheck
+# Healthcheck (utile per Render)
 # =========================
-
 @app.get("/health")
 def health():
     with get_conn() as conn:
@@ -189,43 +146,8 @@ def health():
 
 
 # =========================
-# Step 7: SSE stream realtime
-# =========================
-
-@app.get("/api/stream")
-async def stream(request: Request):
-    """
-    Server-Sent Events:
-    - manda eventi "update" quando qualcosa cambia
-    - keepalive per mantenere la connessione
-    """
-    q = await hub.subscribe()
-
-    async def gen():
-        try:
-            # hello event
-            yield "event: hello\ndata: {}\n\n"
-
-            while True:
-                if await request.is_disconnected():
-                    break
-
-                try:
-                    msg = await asyncio.wait_for(q.get(), timeout=15.0)
-                    yield f"event: update\ndata: {msg}\n\n"
-                except asyncio.TimeoutError:
-                    # keepalive comment (non trigger-a onmessage)
-                    yield ":keepalive\n\n"
-        finally:
-            await hub.unsubscribe(q)
-
-    return StreamingResponse(gen(), media_type="text/event-stream")
-
-
-# =========================
 # Helper: daily aggregation DB-agnostico
 # =========================
-
 def compute_daily(days: int) -> list[dict]:
     days = max(1, min(int(days), 365))
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
@@ -260,9 +182,33 @@ def compute_daily(days: int) -> list[dict]:
 
 
 # =========================
+# Step 12: per-bin ingest key resolution
+# =========================
+def resolve_bin_ingest_key(bin_id: str) -> str:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT ingest_key FROM bins WHERE bin_id=?",
+            (bin_id,)
+        ).fetchone()
+    if not row:
+        # sicurezza: se il bin non esiste, non auto-creo.
+        raise HTTPException(status_code=404, detail="Bin non trovato (configura prima il bin)")
+    k = row.get("ingest_key") if isinstance(row, dict) else row["ingest_key"]
+    if k and str(k).strip():
+        return str(k).strip()
+    return GLOBAL_INGEST_KEY
+
+
+def require_ingest_for_bin(bin_id: str, x_ingest_key: str | None) -> None:
+    expected = resolve_bin_ingest_key(bin_id)
+    if x_ingest_key != expected:
+        raise HTTPException(status_code=401, detail="Unauthorized (ingest/bin)")
+    rate_limit_or_429(expected)
+
+
+# =========================
 # API: configura cestino (ADMIN)
 # =========================
-
 @app.post("/api/bins/{bin_id}/config")
 def set_bin_config(
     bin_id: str,
@@ -274,73 +220,100 @@ def set_bin_config(
 
     with get_conn() as conn:
         conn.execute("""
-            INSERT INTO bins(bin_id, capacity_g, current_weight_g, last_seen)
-            VALUES(?, ?, 0, ?)
+            INSERT INTO bins(bin_id, capacity_g, current_weight_g, last_seen, ingest_key)
+            VALUES(?, ?, 0, ?, NULL)
             ON CONFLICT(bin_id) DO UPDATE SET
               capacity_g=excluded.capacity_g,
               last_seen=excluded.last_seen
         """, (bin_id, float(cfg.capacity_g), now))
 
-    # realtime update
-    hub.publish({"kind": "bin_config", "bin_id": bin_id, "ts": now})
     return {"ok": True, "bin_id": bin_id, "capacity_g": float(cfg.capacity_g)}
 
 
 # =========================
-# API: aggiungi evento (INGEST)
+# Step 12: genera/ruota ingest key per bin (ADMIN)
 # =========================
+@app.post("/api/bins/{bin_id}/rotate_ingest_key", response_model=BinKeyOut)
+def rotate_ingest_key(
+    bin_id: str,
+    x_api_key: str | None = Header(default=None),
+):
+    require_admin_key(x_api_key)
 
+    new_key = "SORTI-BIN-" + secrets.token_urlsafe(24)
+    now = datetime.now(timezone.utc).isoformat()
+
+    with get_conn() as conn:
+        exists = conn.execute(
+            "SELECT bin_id FROM bins WHERE bin_id=?",
+            (bin_id,)
+        ).fetchone()
+        if not exists:
+            raise HTTPException(status_code=404, detail="Bin non trovato (crealo prima con config)")
+
+        conn.execute(
+            "UPDATE bins SET ingest_key=?, last_seen=? WHERE bin_id=?",
+            (new_key, now, bin_id)
+        )
+
+    return {"bin_id": bin_id, "ingest_key": new_key}
+
+
+# =========================
+# API: aggiungi evento (INGEST) — Step 10 + Step 12
+# =========================
 @app.post("/api/event")
 def add_event(
     ev: EventIn,
     x_ingest_key: str | None = Header(default=None),
 ):
-    require_ingest_key(x_ingest_key)
-
-    w_in = float(ev.weight_g)
-    if not (0 < w_in <= 5000):
-        raise HTTPException(status_code=400, detail="weight_g fuori range (1..5000)")
+    # Step 12: validazione per-bin key + rate limit
+    require_ingest_for_bin(ev.bin_id, x_ingest_key)
 
     factors = load_factors()
-    material = normalize_material(ev.material)
+    material = ev.material.strip().lower()
 
     if material not in factors:
         raise HTTPException(status_code=400, detail=f"Materiale sconosciuto: {material}")
 
     factor = float(factors[material])
-    co2_saved_g = w_in * factor
+    co2_saved_g = float(ev.weight_g) * factor
     ts = datetime.now(timezone.utc).isoformat()
 
-    event_id = (ev.event_id or "").strip() or str(uuid.uuid4())
-    duplicate = False
+    # Step 10: serializzo topk se presente
+    topk_json = None
+    if ev.topk is not None:
+        try:
+            topk_json = json.dumps(ev.topk, ensure_ascii=False)
+        except Exception:
+            topk_json = None
 
     with get_conn() as conn:
+        # aggiorna last_seen bin
         conn.execute("""
-            INSERT INTO bins(bin_id, capacity_g, current_weight_g, last_seen)
-            VALUES(?, 10000, 0, ?)
-            ON CONFLICT(bin_id) DO UPDATE SET last_seen=excluded.last_seen
-        """, (ev.bin_id, ts))
+            UPDATE bins SET last_seen=? WHERE bin_id=?
+        """, (ts, ev.bin_id))
 
-        try:
-            conn.execute("""
-                INSERT INTO events(ts, bin_id, material, weight_g, co2_saved_g, event_id)
-                VALUES(?, ?, ?, ?, ?, ?)
-            """, (ts, ev.bin_id, material, w_in, co2_saved_g, event_id))
+        # salva evento (con campi AI)
+        conn.execute("""
+            INSERT INTO events(
+              ts, bin_id, material, weight_g, co2_saved_g,
+              source, model_version, confidence, topk_json, image_ref
+            )
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            ts, ev.bin_id, material, float(ev.weight_g), co2_saved_g,
+            ev.source, ev.model_version, ev.confidence, topk_json, ev.image_ref
+        ))
 
-            conn.execute("""
-                UPDATE bins
-                SET current_weight_g = current_weight_g + ?, last_seen=?
-                WHERE bin_id=?
-            """, (w_in, ts, ev.bin_id))
+        # aggiorna peso bin
+        conn.execute("""
+            UPDATE bins
+            SET current_weight_g = current_weight_g + ?, last_seen=?
+            WHERE bin_id=?
+        """, (float(ev.weight_g), ts, ev.bin_id))
 
-        except Exception as e:
-            msg = str(e).lower()
-            if "unique" in msg and "event" in msg and "event_id" in msg:
-                duplicate = True
-                conn.execute("UPDATE bins SET last_seen=? WHERE bin_id=?", (ts, ev.bin_id))
-            else:
-                raise
-
+        # leggi stato
         row = conn.execute(
             "SELECT capacity_g, current_weight_g FROM bins WHERE bin_id=?",
             (ev.bin_id,)
@@ -350,36 +323,25 @@ def add_event(
     current = float(row["current_weight_g"])
     fill_percent = 0.0 if capacity <= 0 else min(100.0, (current / capacity) * 100.0)
 
-    # realtime update (anche se duplicato: last_seen cambia)
-    hub.publish({
-        "kind": "event",
-        "ts": ts,
-        "bin_id": ev.bin_id,
-        "material": material,
-        "weight_g": w_in,
-        "co2_saved_g": co2_saved_g,
-        "event_id": event_id,
-        "duplicate": duplicate,
-    })
-
     return {
         "ok": True,
-        "duplicate": duplicate,
-        "event_id": event_id,
         "ts": ts,
         "bin_id": ev.bin_id,
         "material": material,
-        "weight_g": w_in,
+        "weight_g": float(ev.weight_g),
         "factor_gco2_per_g": factor,
         "co2_saved_g": co2_saved_g,
-        "bin": {"capacity_g": capacity, "current_weight_g": current, "fill_percent": fill_percent}
+        "bin": {
+            "capacity_g": capacity,
+            "current_weight_g": current,
+            "fill_percent": fill_percent
+        }
     }
 
 
 # =========================
 # API: lista bins (LIBERO)
 # =========================
-
 @app.get("/api/bins")
 def list_bins():
     with get_conn() as conn:
@@ -408,7 +370,6 @@ def list_bins():
 # =========================
 # API: statistiche totali (LIBERO)
 # =========================
-
 @app.get("/api/stats/total")
 def stats_total():
     with get_conn() as conn:
@@ -428,7 +389,6 @@ def stats_total():
 # =========================
 # API: report per materiale (LIBERO)
 # =========================
-
 @app.get("/api/stats/by_material")
 def stats_by_material():
     with get_conn() as conn:
@@ -443,7 +403,11 @@ def stats_by_material():
         """).fetchall()
 
     return [
-        {"material": r["material"], "weight_g": float(r["weight_g"]), "co2_saved_g": float(r["co2_saved_g"])}
+        {
+            "material": r["material"],
+            "weight_g": float(r["weight_g"]),
+            "co2_saved_g": float(r["co2_saved_g"]),
+        }
         for r in rows
     ]
 
@@ -451,155 +415,14 @@ def stats_by_material():
 # =========================
 # API: report giornaliero (LIBERO)
 # =========================
-
 @app.get("/api/stats/daily")
 def stats_daily(days: int = 30):
     return compute_daily(days)
 
 
 # =========================
-# API: ultimi eventi (ADMIN)
-# =========================
-
-@app.get("/api/events/recent")
-def recent_events(
-    limit: int = 20,
-    bin_id: str | None = None,
-    x_api_key: str | None = Header(default=None),
-):
-    require_admin_key(x_api_key)
-    limit = max(1, min(int(limit), 200))
-
-    with get_conn() as conn:
-        if bin_id:
-            rows = conn.execute("""
-                SELECT ts, bin_id, material, weight_g, co2_saved_g, event_id
-                FROM events
-                WHERE bin_id = ?
-                ORDER BY ts DESC
-                LIMIT ?
-            """, (bin_id, limit)).fetchall()
-        else:
-            rows = conn.execute("""
-                SELECT ts, bin_id, material, weight_g, co2_saved_g, event_id
-                FROM events
-                ORDER BY ts DESC
-                LIMIT ?
-            """, (limit,)).fetchall()
-
-    return [
-        {
-            "ts": r["ts"],
-            "bin_id": r["bin_id"],
-            "material": r["material"],
-            "weight_g": float(r["weight_g"]),
-            "co2_saved_g": float(r["co2_saved_g"]),
-            "event_id": r["event_id"],
-        }
-        for r in rows
-    ]
-
-
-# =========================
-# Step 6: endpoint unico dashboard
-# =========================
-
-@app.get("/api/dashboard")
-def dashboard(
-    days: int = 30,
-    events_limit: int = 20,
-    x_api_key: str | None = Header(default=None),
-):
-    days = max(1, min(int(days), 365))
-    events_limit = max(1, min(int(events_limit), 200))
-    is_admin = is_admin_key_valid(x_api_key)
-
-    daily = compute_daily(days)
-
-    with get_conn() as conn:
-        trow = conn.execute("""
-            SELECT
-              COALESCE(SUM(weight_g), 0) AS total_weight_g,
-              COALESCE(SUM(co2_saved_g), 0) AS total_co2_saved_g
-            FROM events
-        """).fetchone()
-
-        totals = {
-            "total_weight_g": float(trow["total_weight_g"]),
-            "total_co2_saved_g": float(trow["total_co2_saved_g"]),
-        }
-
-        mats = conn.execute("""
-            SELECT
-              material,
-              COALESCE(SUM(weight_g), 0) AS weight_g,
-              COALESCE(SUM(co2_saved_g), 0) AS co2_saved_g
-            FROM events
-            GROUP BY material
-            ORDER BY weight_g DESC
-        """).fetchall()
-
-        by_material = [
-            {"material": r["material"], "weight_g": float(r["weight_g"]), "co2_saved_g": float(r["co2_saved_g"])}
-            for r in mats
-        ]
-
-        bvals = conn.execute("""
-            SELECT bin_id, capacity_g, current_weight_g, last_seen
-            FROM bins
-            ORDER BY bin_id
-        """).fetchall()
-
-        bins = []
-        for r in bvals:
-            capacity = float(r["capacity_g"])
-            current = float(r["current_weight_g"])
-            fill_percent = 0.0 if capacity <= 0 else min(100.0, (current / capacity) * 100.0)
-            bins.append({
-                "bin_id": r["bin_id"],
-                "capacity_g": capacity,
-                "current_weight_g": current,
-                "fill_percent": fill_percent,
-                "last_seen": r["last_seen"],
-            })
-
-        recent = []
-        if is_admin:
-            rows = conn.execute("""
-                SELECT ts, bin_id, material, weight_g, co2_saved_g, event_id
-                FROM events
-                ORDER BY ts DESC
-                LIMIT ?
-            """, (events_limit,)).fetchall()
-            recent = [
-                {
-                    "ts": r["ts"],
-                    "bin_id": r["bin_id"],
-                    "material": r["material"],
-                    "weight_g": float(r["weight_g"]),
-                    "co2_saved_g": float(r["co2_saved_g"]),
-                    "event_id": r["event_id"],
-                }
-                for r in rows
-            ]
-
-    return {
-        "server_time": datetime.now(timezone.utc).isoformat(),
-        "days": days,
-        "events_limit": events_limit,
-        "is_admin": is_admin,
-        "totals": totals,
-        "daily": daily,
-        "by_material": by_material,
-        "bins": bins,
-        "recent_events": recent,
-    }
-
-
-# =========================
 # Export CSV eventi (ADMIN)
 # =========================
-
 @app.get("/api/export/events.csv")
 def export_events_csv(
     x_api_key: str | None = Header(default=None),
@@ -608,16 +431,16 @@ def export_events_csv(
 
     with get_conn() as conn:
         rows = conn.execute("""
-            SELECT ts, bin_id, material, weight_g, co2_saved_g, event_id
+            SELECT ts, bin_id, material, weight_g, co2_saved_g
             FROM events
             ORDER BY ts ASC
         """).fetchall()
 
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["ts", "bin_id", "material", "weight_g", "co2_saved_g", "event_id"])
+    w.writerow(["ts", "bin_id", "material", "weight_g", "co2_saved_g"])
     for r in rows:
-        w.writerow([r["ts"], r["bin_id"], r["material"], r["weight_g"], r["co2_saved_g"], r["event_id"]])
+        w.writerow([r["ts"], r["bin_id"], r["material"], r["weight_g"], r["co2_saved_g"]])
 
     return Response(
         content=buf.getvalue(),
@@ -629,7 +452,6 @@ def export_events_csv(
 # =========================
 # Export CSV giornaliero (ADMIN)
 # =========================
-
 @app.get("/api/export/daily.csv")
 def export_daily_csv(
     days: int = 30,
@@ -640,7 +462,7 @@ def export_daily_csv(
 
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["day", "weight_g", "co2_saved_g"])
+    w.writerow(["day", "total_weight_g", "total_co2_saved_g"])
     for r in rows:
         w.writerow([r["day"], r["weight_g"], r["co2_saved_g"]])
 
@@ -655,7 +477,6 @@ def export_daily_csv(
 # =========================
 # Svuota bin (ADMIN)
 # =========================
-
 @app.post("/api/bins/{bin_id}/empty")
 def empty_bin(
     bin_id: str,
@@ -679,8 +500,9 @@ def empty_bin(
             (now, bin_id)
         )
 
-    hub.publish({"kind": "bin_empty", "bin_id": bin_id, "ts": now})
     return {"ok": True, "bin_id": bin_id, "emptied_at": now}
+
+
 
 
 
