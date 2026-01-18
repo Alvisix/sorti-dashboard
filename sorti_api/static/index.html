@@ -530,7 +530,9 @@
     // ✅ Realtime intelligente: debounce refresh + micro-update UI
     let refreshTimer = null;
     let pendingRefresh = false;
-    let lastSsePayload = null;
+
+    // ✅ admin state dell’ultima dashboard fetch (serve per evitare di mostrare events se key non valida)
+    let lastIsAdmin = false;
 
     const LS_THRESH = "sorti_thresholds_v1";
     let thresholds = { warn: 70, critical: 85 };
@@ -809,7 +811,56 @@
       const title = isoToNice(isoTs);
       tdLast.title = title;
       tdLast.textContent = timeAgo(isoTs);
-      // (facoltativo) evidenziazione leggera su hover già esiste, quindi lasciamo minimal
+    }
+
+    // ✅ LIVE: inserisce immediatamente una riga evento in cima (solo se admin ok)
+    function prependRecentEvent(payload){
+      if (!payload) return;
+      if (!adminKey()) return;
+      if (!lastIsAdmin) return;
+
+      const eventsBody = $("eventsBody");
+      const eventsEmpty = $("eventsEmpty");
+
+      // se era in empty state, lo togliamo
+      eventsEmpty.style.display = "none";
+      eventsEmpty.textContent = "";
+
+      const ts = payload.ts || new Date().toISOString();
+      const whenHuman = timeAgo(ts);
+      const whenTitle = isoToNice(ts);
+      const binId = payload.bin_id || "—";
+      const material = payload.material || "—";
+      const w = payload.weight_g;
+      const co2 = payload.co2_saved_g;
+      const eid = payload.event_id ?? "";
+
+      const rowHtml = `
+        <tr data-eid="${String(eid)}">
+          <td class="muted" title="${whenTitle}">${whenHuman}</td>
+          <td><b>${binId}</b></td>
+          <td>${material}</td>
+          <td>${formatWeight(w)}</td>
+          <td>${formatCO2(co2)}</td>
+          <td class="mono" style="text-align:right" title="${String(eid)}">${shortId(eid)}</td>
+        </tr>
+      `;
+
+      // evita duplicati se ricevi più update dello stesso evento
+      if (eid){
+        const existing = eventsBody.querySelector(`tr[data-eid="${CSS.escape(String(eid))}"]`);
+        if (existing) return;
+      }
+
+      eventsBody.insertAdjacentHTML("afterbegin", rowHtml);
+
+      // keep max 20 righe
+      const rows = eventsBody.querySelectorAll("tr");
+      for (let i = 20; i < rows.length; i++) rows[i].remove();
+
+      // aggiorna signature “leggera” per evitare re-render inutile al prossimo refresh
+      // (non perfetta, ma sufficiente a ridurre flicker)
+      lastEventsSig = "LIVE";
     }
 
     // ✅ debounce refresh: massimo 1 refresh ogni ~1s quando arrivano update in burst
@@ -941,12 +992,9 @@
           refresh();
         });
 
-        // ✅ Realtime intelligente:
-        // - micro-update subito su riga bin (ultimo update)
-        // - refresh completo solo "debounced" (no spam)
         es.addEventListener("update", (ev) => {
           const now = Date.now();
-          if (now - lastUpdateTs < 150) return;
+          if (now - lastUpdateTs < 120) return;
           lastUpdateTs = now;
 
           setLive("Realtime", "realtime");
@@ -957,13 +1005,17 @@
           }catch{
             payload = null;
           }
-          lastSsePayload = payload;
 
           const binId = payload?.bin_id;
           const ts = payload?.ts || new Date().toISOString();
           if (binId) touchBinRow(binId, ts);
 
-          // Delay diverso a seconda del tipo: config/empty più urgenti
+          // 🔥 se è un event e siamo admin, aggiorna subito la tabella events
+          if (payload?.type === "event"){
+            prependRecentEvent(payload);
+          }
+
+          // refresh completo debounced (per KPI / charts / ordinamento)
           const t = String(payload?.type || "update");
           const delay =
             (t === "config" || t === "empty" || t === "rotate_key") ? 350 :
@@ -1013,9 +1065,10 @@
       }
 
       const sig = (events || []).map(e =>
-        `${e.ts||""}|${e.bin_id||""}|${e.material||""}|${Number(e.weight_g||0)}|${Number(e.co2_saved_g||0)}|${e.event_id||""}|${e.id||""}`
+        `${e.ts||""}|${e.bin_id||""}|${e.material||""}|${Number(e.weight_g||0)}|${Number(e.co2_saved_g||0)}|${e.id||""}`
       ).join(";;");
 
+      // se stiamo aggiornando live, può arrivare un refresh: lasciamo passare (così riallinea)
       if (sig === lastEventsSig) return;
       lastEventsSig = sig;
 
@@ -1032,15 +1085,15 @@
       eventsBody.innerHTML = events.map(e => {
         const whenHuman = timeAgo(e.ts);
         const whenTitle = isoToNice(e.ts);
-        const eid = (e.event_id ?? e.id ?? "");
+        const eid = e.id ?? "";
         return `
-          <tr>
+          <tr data-eid="${String(eid)}">
             <td class="muted" title="${whenTitle}">${whenHuman}</td>
             <td><b>${e.bin_id}</b></td>
             <td>${e.material}</td>
             <td>${formatWeight(e.weight_g)}</td>
             <td>${formatCO2(e.co2_saved_g)}</td>
-            <td class="mono" style="text-align:right" title="${eid}">${shortId(eid)}</td>
+            <td class="mono" style="text-align:right" title="${String(eid)}">${shortId(eid)}</td>
           </tr>
         `;
       }).join("");
@@ -1057,6 +1110,9 @@
         clearError();
         const days = Number($("rangeSel").value || 30);
         const dash = await fetchDashboard(days);
+
+        // ✅ salva stato admin per live events
+        lastIsAdmin = !!dash?.is_admin;
 
         $("kpiTotalWeight").textContent = formatWeight(dash?.totals?.total_weight_g);
         $("kpiTotalCO2").textContent = formatCO2(dash?.totals?.total_co2_saved_g);
@@ -1151,7 +1207,6 @@
         refreshing = false;
         if (pendingRefresh){
           pendingRefresh = false;
-          // se sono arrivati altri update durante refresh, rifai un refresh leggermente dopo
           scheduleRefresh(350);
         }
       }
@@ -1218,6 +1273,7 @@
   </script>
 </body>
 </html>
+
 
 
 
