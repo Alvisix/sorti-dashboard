@@ -527,6 +527,11 @@
     let pollTimer = null;
     let lastUpdateTs = 0;
 
+    // ✅ Realtime intelligente: debounce refresh + micro-update UI
+    let refreshTimer = null;
+    let pendingRefresh = false;
+    let lastSsePayload = null;
+
     const LS_THRESH = "sorti_thresholds_v1";
     let thresholds = { warn: 70, critical: 85 };
 
@@ -749,6 +754,7 @@
       if (f >= thresholds.warn) return 1;
       return 0;
     }
+
     function renderQuickAlerts(bins){
       const warn = thresholds.warn;
       const crit = thresholds.critical;
@@ -789,6 +795,30 @@
 
       list.style.display = "block";
       list.textContent = `Da attenzionare:\n${lines}`;
+    }
+
+    // ✅ micro-update: aggiorna solo "Ultimo update" della riga bin coinvolta
+    function touchBinRow(binId, isoTs){
+      if (!binId) return;
+      const tr = document.getElementById(`binrow-${binId}`);
+      if (!tr) return;
+
+      const tdLast = tr.querySelector('[data-col="last"]');
+      if (!tdLast) return;
+
+      const title = isoToNice(isoTs);
+      tdLast.title = title;
+      tdLast.textContent = timeAgo(isoTs);
+      // (facoltativo) evidenziazione leggera su hover già esiste, quindi lasciamo minimal
+    }
+
+    // ✅ debounce refresh: massimo 1 refresh ogni ~1s quando arrivano update in burst
+    function scheduleRefresh(ms=800){
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        refresh();
+      }, ms);
     }
 
     // Chart defaults
@@ -911,12 +941,36 @@
           refresh();
         });
 
-        es.addEventListener("update", () => {
+        // ✅ Realtime intelligente:
+        // - micro-update subito su riga bin (ultimo update)
+        // - refresh completo solo "debounced" (no spam)
+        es.addEventListener("update", (ev) => {
           const now = Date.now();
-          if (now - lastUpdateTs < 250) return;
+          if (now - lastUpdateTs < 150) return;
           lastUpdateTs = now;
+
           setLive("Realtime", "realtime");
-          refresh();
+
+          let payload = null;
+          try{
+            payload = ev?.data ? JSON.parse(ev.data) : null;
+          }catch{
+            payload = null;
+          }
+          lastSsePayload = payload;
+
+          const binId = payload?.bin_id;
+          const ts = payload?.ts || new Date().toISOString();
+          if (binId) touchBinRow(binId, ts);
+
+          // Delay diverso a seconda del tipo: config/empty più urgenti
+          const t = String(payload?.type || "update");
+          const delay =
+            (t === "config" || t === "empty" || t === "rotate_key") ? 350 :
+            (t === "event") ? 650 :
+            800;
+
+          scheduleRefresh(delay);
         });
 
         es.onerror = () => {
@@ -959,7 +1013,7 @@
       }
 
       const sig = (events || []).map(e =>
-        `${e.ts||""}|${e.bin_id||""}|${e.material||""}|${Number(e.weight_g||0)}|${Number(e.co2_saved_g||0)}|${e.event_id||""}`
+        `${e.ts||""}|${e.bin_id||""}|${e.material||""}|${Number(e.weight_g||0)}|${Number(e.co2_saved_g||0)}|${e.event_id||""}|${e.id||""}`
       ).join(";;");
 
       if (sig === lastEventsSig) return;
@@ -978,6 +1032,7 @@
       eventsBody.innerHTML = events.map(e => {
         const whenHuman = timeAgo(e.ts);
         const whenTitle = isoToNice(e.ts);
+        const eid = (e.event_id ?? e.id ?? "");
         return `
           <tr>
             <td class="muted" title="${whenTitle}">${whenHuman}</td>
@@ -985,14 +1040,17 @@
             <td>${e.material}</td>
             <td>${formatWeight(e.weight_g)}</td>
             <td>${formatCO2(e.co2_saved_g)}</td>
-            <td class="mono" style="text-align:right" title="${e.event_id || ""}">${shortId(e.event_id)}</td>
+            <td class="mono" style="text-align:right" title="${eid}">${shortId(eid)}</td>
           </tr>
         `;
       }).join("");
     }
 
     async function refresh(){
-      if (refreshing) return;
+      if (refreshing){
+        pendingRefresh = true;
+        return;
+      }
       refreshing = true;
 
       try{
@@ -1040,11 +1098,11 @@
             const priClass = (p === 2) ? "priCritical" : (p === 1) ? "priWarn" : "";
 
             return `
-              <tr class="${priClass}">
+              <tr id="binrow-${b.bin_id}" class="${priClass}">
                 <td>${b.bin_id}</td>
-                <td>${wTxt}</td>
-                <td title="${cTxt}">${capKgTxt} kg</td>
-                <td>
+                <td data-col="weight">${wTxt}</td>
+                <td data-col="cap" title="${cTxt}">${capKgTxt} kg</td>
+                <td data-col="fill">
                   <div class="fillWrap">
                     <span class="fillPill">${Math.round(fill)}%</span>
                     ${fillBadge(fill)}
@@ -1053,7 +1111,7 @@
                     </span>
                   </div>
                 </td>
-                <td class="muted" title="${lastTitle}">${lastHuman}</td>
+                <td data-col="last" class="muted" title="${lastTitle}">${lastHuman}</td>
                 <td style="text-align:right">
                   <button class="btnGhost btnMini" onclick="setCapacityKg('${b.bin_id}', ${Number(b.capacity_g||0)})">Capacità</button>
                   <button class="btnDanger btnMini" style="margin-left:8px" onclick="emptyBin('${b.bin_id}')">Svuota</button>
@@ -1091,6 +1149,11 @@
         showError(e?.message || String(e));
       } finally {
         refreshing = false;
+        if (pendingRefresh){
+          pendingRefresh = false;
+          // se sono arrivati altri update durante refresh, rifai un refresh leggermente dopo
+          scheduleRefresh(350);
+        }
       }
     }
 
@@ -1155,6 +1218,8 @@
   </script>
 </body>
 </html>
+
+
 
 
 
