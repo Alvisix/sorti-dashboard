@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Header
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone, timedelta
@@ -9,6 +9,7 @@ import csv
 import io
 import time
 import secrets
+import asyncio
 from pathlib import Path
 from typing import Any, Optional
 
@@ -101,6 +102,29 @@ def rate_limit_or_429(key: str) -> None:
 
 
 # =========================
+# SSE: broker aggiornamenti
+# =========================
+_sse_clients: set[asyncio.Queue] = set()
+
+def sse_publish(event: str = "update", data: dict | str | None = None) -> None:
+    if data is None:
+        payload = ""
+    elif isinstance(data, str):
+        payload = data
+    else:
+        payload = json.dumps(data, ensure_ascii=False)
+
+    dead = []
+    for q in list(_sse_clients):
+        try:
+            q.put_nowait((event, payload))
+        except Exception:
+            dead.append(q)
+    for q in dead:
+        _sse_clients.discard(q)
+
+
+# =========================
 # Static files (dashboard)
 # =========================
 if STATIC_DIR.exists():
@@ -137,6 +161,37 @@ def health():
     with get_conn() as conn:
         conn.execute("SELECT 1").fetchone()
     return {"ok": True}
+
+
+# =========================
+# ✅ SSE stream realtime (PUBBLICO)
+# =========================
+@app.get("/api/stream")
+async def stream():
+    # NOTE: EventSource non può inviare header (X-API-Key).
+    # Questo endpoint è pubblico e manda solo notifiche "update".
+    async def event_generator():
+        q: asyncio.Queue = asyncio.Queue(maxsize=50)
+        _sse_clients.add(q)
+
+        # hello iniziale (la UI lo ascolta)
+        yield "event: hello\ndata: ok\n\n"
+
+        try:
+            while True:
+                try:
+                    event, payload = await asyncio.wait_for(q.get(), timeout=15.0)
+                    if payload == "":
+                        yield f"event: {event}\ndata: \n\n"
+                    else:
+                        yield f"event: {event}\ndata: {payload}\n\n"
+                except asyncio.TimeoutError:
+                    # keepalive per proxy / hosting
+                    yield ": keepalive\n\n"
+        finally:
+            _sse_clients.discard(q)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 # =========================
@@ -222,6 +277,9 @@ def set_bin_config(
               last_seen=excluded.last_seen
         """, (bin_id, float(cfg.capacity_g), now))
 
+    # 🔔 notify realtime
+    sse_publish("update", {"type": "config", "bin_id": bin_id, "ts": now})
+
     return {"ok": True, "bin_id": bin_id, "capacity_g": float(cfg.capacity_g)}
 
 
@@ -250,6 +308,9 @@ def rotate_ingest_key(
             "UPDATE bins SET ingest_key=?, last_seen=? WHERE bin_id=?",
             (new_key, now, bin_id)
         )
+
+    # 🔔 notify realtime
+    sse_publish("update", {"type": "rotate_key", "bin_id": bin_id, "ts": now})
 
     return {"bin_id": bin_id, "ingest_key": new_key}
 
@@ -308,6 +369,9 @@ def add_event(
     capacity = float(row["capacity_g"])
     current = float(row["current_weight_g"])
     fill_percent = 0.0 if capacity <= 0 else min(100.0, (current / capacity) * 100.0)
+
+    # 🔔 notify realtime
+    sse_publish("update", {"type": "event", "bin_id": ev.bin_id, "ts": ts})
 
     return {
         "ok": True,
@@ -557,8 +621,10 @@ def empty_bin(
             (now, bin_id)
         )
 
-    return {"ok": True, "bin_id": bin_id, "emptied_at": now}
+    # 🔔 notify realtime
+    sse_publish("update", {"type": "empty", "bin_id": bin_id, "ts": now})
 
+    return {"ok": True, "bin_id": bin_id, "emptied_at": now}
 
 
 
