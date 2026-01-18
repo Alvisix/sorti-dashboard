@@ -168,13 +168,10 @@ def health():
 # =========================
 @app.get("/api/stream")
 async def stream():
-    # NOTE: EventSource non può inviare header (X-API-Key).
-    # Questo endpoint è pubblico e manda solo notifiche "update".
     async def event_generator():
-        q: asyncio.Queue = asyncio.Queue(maxsize=50)
+        q: asyncio.Queue = asyncio.Queue(maxsize=100)
         _sse_clients.add(q)
 
-        # hello iniziale (la UI lo ascolta)
         yield "event: hello\ndata: ok\n\n"
 
         try:
@@ -186,7 +183,6 @@ async def stream():
                     else:
                         yield f"event: {event}\ndata: {payload}\n\n"
                 except asyncio.TimeoutError:
-                    # keepalive per proxy / hosting
                     yield ": keepalive\n\n"
         finally:
             _sse_clients.discard(q)
@@ -277,9 +273,7 @@ def set_bin_config(
               last_seen=excluded.last_seen
         """, (bin_id, float(cfg.capacity_g), now))
 
-    # 🔔 notify realtime
     sse_publish("update", {"type": "config", "bin_id": bin_id, "ts": now})
-
     return {"ok": True, "bin_id": bin_id, "capacity_g": float(cfg.capacity_g)}
 
 
@@ -309,9 +303,7 @@ def rotate_ingest_key(
             (new_key, now, bin_id)
         )
 
-    # 🔔 notify realtime
     sse_publish("update", {"type": "rotate_key", "bin_id": bin_id, "ts": now})
-
     return {"bin_id": bin_id, "ingest_key": new_key}
 
 
@@ -341,19 +333,45 @@ def add_event(
         except Exception:
             topk_json = None
 
+    event_id: int | None = None
+
     with get_conn() as conn:
         conn.execute("UPDATE bins SET last_seen=? WHERE bin_id=?", (ts, ev.bin_id))
 
-        conn.execute("""
-            INSERT INTO events(
-              ts, bin_id, material, weight_g, co2_saved_g,
-              source, model_version, confidence, topk_json, image_ref
-            )
-            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            ts, ev.bin_id, material, float(ev.weight_g), co2_saved_g,
-            ev.source, ev.model_version, ev.confidence, topk_json, ev.image_ref
-        ))
+        if conn.backend == "postgres":
+            cur = conn.execute("""
+                INSERT INTO events(
+                  ts, bin_id, material, weight_g, co2_saved_g,
+                  source, model_version, confidence, topk_json, image_ref
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                RETURNING id
+            """, (
+                ts, ev.bin_id, material, float(ev.weight_g), co2_saved_g,
+                ev.source, ev.model_version, ev.confidence, topk_json, ev.image_ref
+            ))
+            row_id = cur.fetchone()
+            if row_id:
+                # psycopg dict_row => {"id": ...} oppure tuple
+                try:
+                    event_id = int(row_id["id"])  # type: ignore[index]
+                except Exception:
+                    event_id = int(row_id[0])
+        else:
+            cur = conn.execute("""
+                INSERT INTO events(
+                  ts, bin_id, material, weight_g, co2_saved_g,
+                  source, model_version, confidence, topk_json, image_ref
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                ts, ev.bin_id, material, float(ev.weight_g), co2_saved_g,
+                ev.source, ev.model_version, ev.confidence, topk_json, ev.image_ref
+            ))
+            try:
+                event_id = int(cur.lastrowid)  # sqlite cursor
+            except Exception:
+                event_id = None
 
         conn.execute("""
             UPDATE bins
@@ -362,7 +380,7 @@ def add_event(
         """, (float(ev.weight_g), ts, ev.bin_id))
 
         row = conn.execute(
-            "SELECT capacity_g, current_weight_g FROM bins WHERE bin_id=?",
+            "SELECT capacity_g, current_weight_g, last_seen FROM bins WHERE bin_id=?",
             (ev.bin_id,)
         ).fetchone()
 
@@ -370,11 +388,31 @@ def add_event(
     current = float(row["current_weight_g"])
     fill_percent = 0.0 if capacity <= 0 else min(100.0, (current / capacity) * 100.0)
 
-    # 🔔 notify realtime
-    sse_publish("update", {"type": "event", "bin_id": ev.bin_id, "ts": ts})
+    # 🔥 SSE payload completo: evento + stato bin aggiornato
+    sse_publish("update", {
+        "type": "event",
+        "ts": ts,
+        "bin_id": ev.bin_id,
+        "event": {
+            "id": event_id,
+            "ts": ts,
+            "bin_id": ev.bin_id,
+            "material": material,
+            "weight_g": float(ev.weight_g),
+            "co2_saved_g": co2_saved_g
+        },
+        "bin": {
+            "bin_id": ev.bin_id,
+            "capacity_g": capacity,
+            "current_weight_g": current,
+            "fill_percent": fill_percent,
+            "last_seen": row["last_seen"]
+        }
+    })
 
     return {
         "ok": True,
+        "id": event_id,
         "ts": ts,
         "bin_id": ev.bin_id,
         "material": material,
@@ -471,7 +509,7 @@ def stats_daily(days: int = 30):
 
 
 # =========================
-# ✅ NEW: recent events (ADMIN)
+# ✅ recent events (ADMIN)
 # =========================
 @app.get("/api/events/recent")
 def recent_events(
@@ -509,20 +547,18 @@ def recent_events(
 
 
 # =========================
-# ✅ NEW: dashboard aggregate (USATO DALLA UI)
+# ✅ dashboard aggregate (USATO DALLA UI)
 # =========================
 @app.get("/api/dashboard")
 def dashboard(
     days: int = 30,
     x_api_key: str | None = Header(default=None),
 ):
-    # public parts
     bins = list_bins()
     totals = stats_total()
     daily = stats_daily(days=days)
     mats = stats_by_material()
 
-    # admin extras
     admin = is_admin(x_api_key)
     recent = []
     if admin:
@@ -621,8 +657,27 @@ def empty_bin(
             (now, bin_id)
         )
 
-    # 🔔 notify realtime
-    sse_publish("update", {"type": "empty", "bin_id": bin_id, "ts": now})
+        row = conn.execute(
+            "SELECT capacity_g, current_weight_g, last_seen FROM bins WHERE bin_id=?",
+            (bin_id,)
+        ).fetchone()
+
+    capacity = float(row["capacity_g"])
+    current = float(row["current_weight_g"])
+    fill_percent = 0.0 if capacity <= 0 else min(100.0, (current / capacity) * 100.0)
+
+    sse_publish("update", {
+        "type": "empty",
+        "bin_id": bin_id,
+        "ts": now,
+        "bin": {
+            "bin_id": bin_id,
+            "capacity_g": capacity,
+            "current_weight_g": current,
+            "fill_percent": fill_percent,
+            "last_seen": row["last_seen"]
+        }
+    })
 
     return {"ok": True, "bin_id": bin_id, "emptied_at": now}
 
