@@ -9,11 +9,9 @@
   let pollTimer = null;
   let lastUpdateTs = 0;
 
-  // realtime intelligente
   let refreshTimer = null;
   let pendingRefresh = false;
 
-  // admin state ultimo fetch
   let lastIsAdmin = false;
 
   const LS_THRESH = "sorti_thresholds_v1";
@@ -23,6 +21,12 @@
   const LS_INGEST = "sorti_ingest_key";
   const adminKey = () => localStorage.getItem(LS_ADMIN) || "";
   const ingestKey = () => localStorage.getItem(LS_INGEST) || "";
+
+  // ---- Drill-down state
+  let drawerOpen = false;
+  let activeBinId = null;
+  let ddLineChart = null;
+  let ddPieChart = null;
 
   function loadThresholds(){
     try{
@@ -163,6 +167,7 @@
       });
 
       await refresh();
+      if (drawerOpen && activeBinId === binId) await openBinDrawer(binId, { soft: true });
     }catch(e){
       alert("Errore modifica capacità:\n\n" + (e?.message || String(e)));
     }
@@ -180,6 +185,7 @@
         headers: { "X-API-Key": adminKey() }
       });
       await refresh();
+      if (drawerOpen && activeBinId === binId) await openBinDrawer(binId, { soft: true });
     }catch(e){
       alert("Errore svuotamento:\n\n" + (e?.message || String(e)));
     }
@@ -249,14 +255,31 @@
 
   function touchBinRow(binId, isoTs){
     if (!binId) return;
+
     const tr = document.getElementById(`binrow-${binId}`);
-    if (!tr) return;
+    if (tr){
+      const tdLast = tr.querySelector('[data-col="last"]');
+      if (tdLast){
+        tdLast.title = isoToNice(isoTs);
+        tdLast.textContent = timeAgo(isoTs);
+      }
+    }
 
-    const tdLast = tr.querySelector('[data-col="last"]');
-    if (!tdLast) return;
+    const card = document.getElementById(`bincard-${binId}`);
+    if (card){
+      const el = card.querySelector('[data-col="last"]');
+      if (el){
+        el.title = isoToNice(isoTs);
+        el.textContent = timeAgo(isoTs);
+      }
+    }
 
-    tdLast.title = isoToNice(isoTs);
-    tdLast.textContent = timeAgo(isoTs);
+    // se drawer aperto sul bin, aggiorna anche lì
+    if (drawerOpen && activeBinId === binId){
+      $("ddLast").textContent = timeAgo(isoTs);
+      $("ddLast").title = isoToNice(isoTs);
+      $("ddSub").textContent = `Ultimo update: ${timeAgo(isoTs)}`;
+    }
   }
 
   function prependRecentEvent(payload){
@@ -301,6 +324,27 @@
     for (let i = 20; i < rows.length; i++) rows[i].remove();
 
     lastEventsSig = "LIVE";
+
+    // se drawer aperto sullo stesso bin, aggiorna anche lista eventi drawer (solo “soft”: aggiungi in cima)
+    if (drawerOpen && activeBinId === binId){
+      const ddBody = $("ddEventsBody");
+      const ddEmpty = $("ddEventsEmpty");
+      ddEmpty.style.display = "none";
+      ddEmpty.textContent = "";
+
+      const row = `
+        <tr data-eid="${String(eid)}">
+          <td class="muted" title="${whenTitle}">${whenHuman}</td>
+          <td>${material}</td>
+          <td>${formatWeight(w)}</td>
+          <td>${formatCO2(co2)}</td>
+          <td class="mono" style="text-align:right" title="${String(eid)}">${shortId(eid)}</td>
+        </tr>
+      `;
+      ddBody.insertAdjacentHTML("afterbegin", row);
+      const rows2 = ddBody.querySelectorAll("tr");
+      for (let i = 20; i < rows2.length; i++) rows2[i].remove();
+    }
   }
 
   function scheduleRefresh(ms=800){
@@ -311,7 +355,7 @@
     }, ms);
   }
 
-  // Chart defaults
+  // ---- Charts global
   Chart.defaults.color = "rgba(255,255,255,.82)";
   Chart.defaults.borderColor = "rgba(255,255,255,.08)";
   Chart.defaults.font.family = "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif";
@@ -352,9 +396,121 @@
   let lineChart = null;
   let doughnutChart = null;
 
+  function initCharts(){
+    lineChart = new Chart($("co2Line").getContext("2d"), {
+      type:"line",
+      data:{labels:[], datasets:[{
+        label:"CO₂",
+        data:[],
+        borderWidth:2,
+        tension:.25,
+        pointRadius:2,
+        pointHoverRadius:5,
+        fill:true
+      }]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{
+          legend:{display:false},
+          tooltip:{ callbacks:{ label:(ctx)=> ` ${formatCO2(ctx.parsed.y)}` } }
+        },
+        scales:{
+          x:{ grid:{display:false} },
+          y:{
+            grid:{ color:"rgba(255,255,255,.06)" },
+            ticks:{ callback:(v)=>formatCO2(v) }
+          }
+        }
+      }
+    });
+
+    doughnutChart = new Chart($("matPie").getContext("2d"), {
+      type:"doughnut",
+      data:{labels:[], datasets:[{
+        data:[],
+        backgroundColor:[
+          "rgba(67,206,162,.90)",
+          "rgba(24,90,157,.90)",
+          "rgba(247,201,72,.90)",
+          "rgba(255,93,93,.90)",
+          "rgba(164,121,255,.90)",
+          "rgba(255,140,73,.90)",
+          "rgba(96,215,255,.90)",
+          "rgba(160,255,160,.90)"
+        ],
+        borderColor:"rgba(255,255,255,.14)",
+        borderWidth:1.2
+      }]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        cutout:"64%",
+        plugins:{
+          legend:{ position:"top", labels:{ boxWidth:12 } },
+          tooltip:{ callbacks:{ label:(ctx)=> ` ${ctx.label}: ${formatWeight(ctx.parsed)}` } },
+          donutCenterText: {}
+        }
+      }
+    });
+
+    // drawer charts (creati una volta)
+    ddLineChart = new Chart($("ddLine").getContext("2d"), {
+      type:"line",
+      data:{labels:[], datasets:[{
+        label:"CO₂ bin",
+        data:[],
+        borderWidth:2,
+        tension:.25,
+        pointRadius:2,
+        pointHoverRadius:5,
+        fill:true
+      }]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:false} },
+        scales:{
+          x:{ grid:{display:false} },
+          y:{ grid:{ color:"rgba(255,255,255,.06)" }, ticks:{ callback:(v)=>formatCO2(v) } }
+        }
+      }
+    });
+
+    ddPieChart = new Chart($("ddPie").getContext("2d"), {
+      type:"doughnut",
+      data:{labels:[], datasets:[{
+        data:[],
+        backgroundColor:[
+          "rgba(67,206,162,.90)",
+          "rgba(24,90,157,.90)",
+          "rgba(247,201,72,.90)",
+          "rgba(255,93,93,.90)",
+          "rgba(164,121,255,.90)",
+          "rgba(255,140,73,.90)",
+          "rgba(96,215,255,.90)",
+          "rgba(160,255,160,.90)"
+        ],
+        borderColor:"rgba(255,255,255,.14)",
+        borderWidth:1.2
+      }]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        cutout:"64%",
+        plugins:{ legend:{ position:"top", labels:{ boxWidth:12 } }, donutCenterText:{} }
+      }
+    });
+  }
+
   async function fetchDashboard(days){
     const d = Math.max(1, Math.min(365, Number(days || 30)));
     const url = `/api/dashboard?days=${encodeURIComponent(d)}&events_limit=20`;
+    const headers = {};
+    if (adminKey()) headers["X-API-Key"] = adminKey();
+    return await fetchJSON(url, { headers });
+  }
+
+  // ✅ NEW: dettaglio bin (serve patch main.py)
+  async function fetchBinDetail(binId, days, eventsLimit=20){
+    const d = Math.max(1, Math.min(365, Number(days || 30)));
+    const url = `/api/bins/${encodeURIComponent(binId)}?days=${encodeURIComponent(d)}&events_limit=${encodeURIComponent(eventsLimit)}`;
     const headers = {};
     if (adminKey()) headers["X-API-Key"] = adminKey();
     return await fetchJSON(url, { headers });
@@ -396,6 +552,11 @@
           prependRecentEvent(payload);
         }
 
+        // se drawer aperto sul bin, fai un refresh leggero dopo un po'
+        if (drawerOpen && activeBinId && activeBinId === binId){
+          scheduleBinRefresh(900);
+        }
+
         const t = String(payload?.type || "update");
         const delay =
           (t === "config" || t === "empty" || t === "rotate_key") ? 350 :
@@ -412,6 +573,146 @@
       };
     } catch {
       startPollingFallback();
+    }
+  }
+
+  // ---- Drawer open/close
+  function openDrawer(){
+    drawerOpen = true;
+    $("drawer").classList.add("open");
+    $("drawerOverlay").classList.add("open");
+    $("drawer").setAttribute("aria-hidden","false");
+    $("drawerOverlay").setAttribute("aria-hidden","false");
+    document.body.style.overflow = "hidden";
+  }
+  function closeDrawer(){
+    drawerOpen = false;
+    activeBinId = null;
+    $("drawer").classList.remove("open");
+    $("drawerOverlay").classList.remove("open");
+    $("drawer").setAttribute("aria-hidden","true");
+    $("drawerOverlay").setAttribute("aria-hidden","true");
+    document.body.style.overflow = "";
+  }
+
+  let binRefreshTimer = null;
+  function scheduleBinRefresh(ms=900){
+    if (!drawerOpen || !activeBinId) return;
+    if (binRefreshTimer) clearTimeout(binRefreshTimer);
+    binRefreshTimer = setTimeout(async () => {
+      binRefreshTimer = null;
+      await openBinDrawer(activeBinId, { soft:true });
+    }, ms);
+  }
+
+  function ddSetLoading(binId){
+    $("ddTitle").textContent = `Bin ${binId}`;
+    $("ddSub").textContent = "Caricamento…";
+    $("ddFill").textContent = "—";
+    $("ddWeight").textContent = "—";
+    $("ddCap").textContent = "—";
+    $("ddLast").textContent = "—";
+    $("ddRangeLabel").textContent = `${$("rangeSel").value} giorni`;
+
+    $("ddEventsEmpty").style.display = "none";
+    $("ddEventsEmpty").textContent = "";
+    $("ddEventsBody").innerHTML = "";
+
+    $("ddLineEmpty").style.display = "none";
+    $("ddPieEmpty").style.display = "none";
+  }
+
+  async function openBinDrawer(binId, { soft=false } = {}){
+    try{
+      activeBinId = binId;
+      const days = Number($("rangeSel").value || 30);
+
+      if (!soft){
+        ddSetLoading(binId);
+        openDrawer();
+      }
+
+      // azioni
+      $("ddBtnCapacity").onclick = () => setCapacityKg(binId, window.__lastCapGByBin?.[binId] || 0);
+      $("ddBtnEmpty").onclick = () => emptyBin(binId);
+
+      const data = await fetchBinDetail(binId, days, 20);
+
+      // header
+      $("ddTitle").textContent = `Bin ${binId}`;
+
+      const b = data?.bin || {};
+      const fill = Number(b.fill_percent||0);
+      const wG = Number(b.current_weight_g||0);
+      const capG = Number(b.capacity_g||0);
+      const lastSeen = b.last_seen || null;
+
+      $("ddFill").textContent = `${Math.round(fill)}%`;
+      $("ddFillHint").innerHTML = fillBadge(fill);
+      $("ddWeight").textContent = formatWeight(wG);
+
+      const capKg = capG/1000;
+      $("ddCap").textContent = isFinite(capKg) ? (capKg < 100 ? capKg.toFixed(1) : Math.round(capKg).toString()) + " kg" : "—";
+
+      $("ddLast").textContent = timeAgo(lastSeen);
+      $("ddLast").title = isoToNice(lastSeen);
+
+      $("ddSub").textContent = `Ultimo update: ${timeAgo(lastSeen)} • ${fill >= thresholds.critical ? "CRITICO" : fill >= thresholds.warn ? "WARNING" : "OK"}`;
+
+      $("ddRangeLabel").textContent = `${days} giorni`;
+
+      // charts bin
+      const daily = data?.daily || [];
+      $("ddLineEmpty").style.display = daily.some(r => Number(r.co2_saved_g||0) > 0) ? "none" : "block";
+      ddLineChart.data.labels = daily.map(r=>r.day);
+      ddLineChart.data.datasets[0].data = daily.map(r=>Number(r.co2_saved_g||0));
+      ddLineChart.update();
+
+      const mats = data?.by_material || [];
+      $("ddPieEmpty").style.display = mats.some(r => Number(r.weight_g||0) > 0) ? "none" : "block";
+      ddPieChart.data.labels = mats.map(r=>r.material);
+      ddPieChart.data.datasets[0].data = mats.map(r=>Number(r.weight_g||0));
+      ddPieChart.update();
+
+      // events bin (admin only)
+      const isAdmin = !!data?.is_admin;
+      const events = data?.recent_events || [];
+
+      if (!adminKey()){
+        $("ddEventsEmpty").style.display = "block";
+        $("ddEventsEmpty").textContent = "🔒 Inserisci e salva la Admin key per vedere gli eventi del bin.";
+        $("ddEventsBody").innerHTML = "";
+      } else if (!isAdmin){
+        $("ddEventsEmpty").style.display = "block";
+        $("ddEventsEmpty").textContent = "❌ Admin key non valida (401).";
+        $("ddEventsBody").innerHTML = "";
+      } else if (!events || events.length === 0){
+        $("ddEventsEmpty").style.display = "block";
+        $("ddEventsEmpty").textContent = "Nessun evento recente per questo bin.";
+        $("ddEventsBody").innerHTML = "";
+      } else {
+        $("ddEventsEmpty").style.display = "none";
+        $("ddEventsEmpty").textContent = "";
+        $("ddEventsBody").innerHTML = events.map(e => {
+          const whenHuman = timeAgo(e.ts);
+          const whenTitle = isoToNice(e.ts);
+          const eid = e.id ?? "";
+          return `
+            <tr data-eid="${String(eid)}">
+              <td class="muted" title="${whenTitle}">${whenHuman}</td>
+              <td>${e.material}</td>
+              <td>${formatWeight(e.weight_g)}</td>
+              <td>${formatCO2(e.co2_saved_g)}</td>
+              <td class="mono" style="text-align:right" title="${String(eid)}">${shortId(eid)}</td>
+            </tr>
+          `;
+        }).join("");
+      }
+
+    }catch(e){
+      $("ddSub").textContent = "Errore caricamento dettagli.";
+      $("ddEventsEmpty").style.display = "block";
+      $("ddEventsEmpty").textContent = (e?.message || String(e));
     }
   }
 
@@ -478,6 +779,116 @@
     }).join("");
   }
 
+  // memorizzo capacità per azioni drawer
+  window.__lastCapGByBin = {};
+
+  function renderBinsDesktopAndMobile(bins, onlyAlerts){
+    // DESKTOP TABLE
+    const binsSig = (onlyAlerts ? "ONLY|" : "ALL|") + bins.map(b =>
+      `${b.bin_id}|${Number(b.capacity_g||0)}|${Number(b.current_weight_g||0)}|${b.last_seen||""}|${Number(b.fill_percent||0)}`
+    ).join(";;");
+
+    if (binsSig !== lastBinsSig){
+      lastBinsSig = binsSig;
+
+      const rowsHTML = bins.map(b => {
+        const fill = Number(b.fill_percent || 0);
+        const wTxt = formatWeight(b.current_weight_g);
+        const cTxt = formatWeight(b.capacity_g);
+        const barWidth = Math.max(0, Math.min(100, fill));
+        const lastHuman = timeAgo(b.last_seen);
+        const lastTitle = isoToNice(b.last_seen);
+
+        const capKg = Number(b.capacity_g||0) / 1000;
+        const capKgTxt = (isFinite(capKg) ? (capKg < 100 ? capKg.toFixed(1) : Math.round(capKg).toString()) : "—");
+
+        const p = priorityOf(fill);
+        const priClass = (p === 2) ? "priCritical" : (p === 1) ? "priWarn" : "";
+
+        window.__lastCapGByBin[b.bin_id] = Number(b.capacity_g||0);
+
+        return `
+          <tr id="binrow-${b.bin_id}" class="${priClass}" style="cursor:pointer"
+              title="Apri dettagli"
+              onclick="window.__openBin('${b.bin_id}')">
+            <td>${b.bin_id}</td>
+            <td data-col="weight">${wTxt}</td>
+            <td data-col="cap" title="${cTxt}">${capKgTxt} kg</td>
+            <td data-col="fill">
+              <div class="fillWrap">
+                <span class="fillPill">${Math.round(fill)}%</span>
+                ${fillBadge(fill)}
+                <span class="bar">
+                  <div style="width:${barWidth}%; background:${barColor(fill)}"></div>
+                </span>
+              </div>
+            </td>
+            <td data-col="last" class="muted" title="${lastTitle}">${lastHuman}</td>
+            <td style="text-align:right" onclick="event.stopPropagation()">
+              <button class="btnGhost btnMini" onclick="setCapacityKg('${b.bin_id}', ${Number(b.capacity_g||0)})">Capacità</button>
+              <button class="btnDanger btnMini" style="margin-left:8px" onclick="emptyBin('${b.bin_id}')">Svuota</button>
+            </td>
+          </tr>
+        `;
+      }).join("");
+
+      $("binsBody").innerHTML = rowsHTML || `<tr><td colspan="6" class="muted">Nessun bin da mostrare (filtro attivo).</td></tr>`;
+
+      // MOBILE CARDS
+      const cards = bins.map(b => {
+        const fill = Number(b.fill_percent || 0);
+        const barWidth = Math.max(0, Math.min(100, fill));
+        const lastHuman = timeAgo(b.last_seen);
+        const lastTitle = isoToNice(b.last_seen);
+
+        const wTxt = formatWeight(b.current_weight_g);
+        const capG = Number(b.capacity_g||0);
+        const capKg = capG/1000;
+        const capTxt = isFinite(capKg) ? (capKg < 100 ? capKg.toFixed(1) : Math.round(capKg).toString()) + " kg" : "—";
+
+        const p = priorityOf(fill);
+        const pri = p === 2 ? "CRITICO" : p === 1 ? "WARNING" : "OK";
+
+        window.__lastCapGByBin[b.bin_id] = capG;
+
+        return `
+          <div id="bincard-${b.bin_id}" class="binCard" onclick="window.__openBin('${b.bin_id}')">
+            <div class="binCardTop">
+              <div>
+                <div class="binCardId">${b.bin_id}</div>
+                <div class="binCardMeta" title="${lastTitle}">
+                  Ultimo update: <span data-col="last">${lastHuman}</span> • ${pri}
+                </div>
+              </div>
+              <div class="fillPill">${Math.round(fill)}%</div>
+            </div>
+
+            <div class="binCardFillRow">
+              <div class="binCardFillLeft">
+                ${fillBadge(fill)}
+                <span class="bar">
+                  <div style="width:${barWidth}%; background:${barColor(fill)}"></div>
+                </span>
+              </div>
+              <div class="binCardMeta">
+                ${wTxt} / ${capTxt}
+              </div>
+            </div>
+
+            <div class="sep" style="margin:10px 0"></div>
+
+            <div class="binCardActions" onclick="event.stopPropagation()">
+              <button class="btnGhost btnMini" onclick="setCapacityKg('${b.bin_id}', ${capG})">Capacità</button>
+              <button class="btnDanger btnMini" onclick="emptyBin('${b.bin_id}')">Svuota</button>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      $("binsCards").innerHTML = cards;
+    }
+  }
+
   async function refresh(){
     if (refreshing){
       pendingRefresh = true;
@@ -508,54 +919,9 @@
       renderQuickAlerts(binsAll);
 
       const onlyAlerts = !!$("onlyAlerts").checked;
-      let bins = onlyAlerts ? binsAll.filter(b => priorityOf(b.fill_percent) > 0) : binsAll;
+      const bins = onlyAlerts ? binsAll.filter(b => priorityOf(b.fill_percent) > 0) : binsAll;
 
-      const binsSig = (onlyAlerts ? "ONLY|" : "ALL|") + bins.map(b =>
-        `${b.bin_id}|${Number(b.capacity_g||0)}|${Number(b.current_weight_g||0)}|${b.last_seen||""}|${Number(b.fill_percent||0)}`
-      ).join(";;");
-
-      if (binsSig !== lastBinsSig){
-        lastBinsSig = binsSig;
-
-        const rowsHTML = bins.map(b => {
-          const fill = Number(b.fill_percent || 0);
-          const wTxt = formatWeight(b.current_weight_g);
-          const cTxt = formatWeight(b.capacity_g);
-          const barWidth = Math.max(0, Math.min(100, fill));
-          const lastHuman = timeAgo(b.last_seen);
-          const lastTitle = isoToNice(b.last_seen);
-
-          const capKg = Number(b.capacity_g||0) / 1000;
-          const capKgTxt = (isFinite(capKg) ? (capKg < 100 ? capKg.toFixed(1) : Math.round(capKg).toString()) : "—");
-
-          const p = priorityOf(fill);
-          const priClass = (p === 2) ? "priCritical" : (p === 1) ? "priWarn" : "";
-
-          return `
-            <tr id="binrow-${b.bin_id}" class="${priClass}">
-              <td>${b.bin_id}</td>
-              <td data-col="weight">${wTxt}</td>
-              <td data-col="cap" title="${cTxt}">${capKgTxt} kg</td>
-              <td data-col="fill">
-                <div class="fillWrap">
-                  <span class="fillPill">${Math.round(fill)}%</span>
-                  ${fillBadge(fill)}
-                  <span class="bar">
-                    <div style="width:${barWidth}%; background:${barColor(fill)}"></div>
-                  </span>
-                </div>
-              </td>
-              <td data-col="last" class="muted" title="${lastTitle}">${lastHuman}</td>
-              <td style="text-align:right">
-                <button class="btnGhost btnMini" onclick="setCapacityKg('${b.bin_id}', ${Number(b.capacity_g||0)})">Capacità</button>
-                <button class="btnDanger btnMini" style="margin-left:8px" onclick="emptyBin('${b.bin_id}')">Svuota</button>
-              </td>
-            </tr>
-          `;
-        }).join("");
-
-        $("binsBody").innerHTML = rowsHTML || `<tr><td colspan="6" class="muted">Nessun bin da mostrare (filtro attivo).</td></tr>`;
-      }
+      renderBinsDesktopAndMobile(bins, onlyAlerts);
 
       const daily = dash?.daily || [];
       const rangeW = daily.reduce((s,r)=>s+Number(r.weight_g||0), 0);
@@ -578,6 +944,12 @@
       renderRecentEvents(dash);
 
       $("lastUpdated").textContent = new Date().toLocaleString();
+
+      // se drawer aperto: aggiorna label range e (opzionale) ricarica dati se cambia range
+      if (drawerOpen && activeBinId){
+        $("ddRangeLabel").textContent = `${days} giorni`;
+      }
+
     } catch (e){
       showError(e?.message || String(e));
     } finally {
@@ -589,66 +961,6 @@
     }
   }
 
-  function initCharts(){
-    const co2Ctx = $("co2Line").getContext("2d");
-    const pieCtx = $("matPie").getContext("2d");
-
-    lineChart = new Chart(co2Ctx, {
-      type:"line",
-      data:{labels:[], datasets:[{
-        label:"CO₂",
-        data:[],
-        borderWidth:2,
-        tension:.25,
-        pointRadius:2,
-        pointHoverRadius:5,
-        fill:true
-      }]},
-      options:{
-        responsive:true, maintainAspectRatio:false,
-        plugins:{
-          legend:{display:false},
-          tooltip:{ callbacks:{ label:(ctx)=> ` ${formatCO2(ctx.parsed.y)}` } }
-        },
-        scales:{
-          x:{ grid:{display:false} },
-          y:{
-            grid:{ color:"rgba(255,255,255,.06)" },
-            ticks:{ callback:(v)=>formatCO2(v) }
-          }
-        }
-      }
-    });
-
-    doughnutChart = new Chart(pieCtx, {
-      type:"doughnut",
-      data:{labels:[], datasets:[{
-        data:[],
-        backgroundColor:[
-          "rgba(67,206,162,.90)",
-          "rgba(24,90,157,.90)",
-          "rgba(247,201,72,.90)",
-          "rgba(255,93,93,.90)",
-          "rgba(164,121,255,.90)",
-          "rgba(255,140,73,.90)",
-          "rgba(96,215,255,.90)",
-          "rgba(160,255,160,.90)"
-        ],
-        borderColor:"rgba(255,255,255,.14)",
-        borderWidth:1.2
-      }]},
-      options:{
-        responsive:true, maintainAspectRatio:false,
-        cutout:"64%",
-        plugins:{
-          legend:{ position:"top", labels:{ boxWidth:12 } },
-          tooltip:{ callbacks:{ label:(ctx)=> ` ${ctx.label}: ${formatWeight(ctx.parsed)}` } },
-          donutCenterText: {}
-        }
-      }
-    });
-  }
-
   function wireUI(){
     $("btnSaveAdmin").onclick = () => {
       const v = $("adminKeyInput").value.trim();
@@ -657,6 +969,7 @@
       $("adminKeyInput").value = "";
       alert("Admin key salvata ✅");
       refresh();
+      if (drawerOpen && activeBinId) openBinDrawer(activeBinId, { soft:true });
     };
 
     $("btnSaveIngest").onclick = () => {
@@ -683,6 +996,7 @@
       saveThresholds();
       updateThresholdLabels();
       refresh();
+      if (drawerOpen && activeBinId) openBinDrawer(activeBinId, { soft:true });
     };
 
     $("btnSimEvent").onclick = async () => {
@@ -736,8 +1050,21 @@
       }
     };
 
-    $("rangeSel").onchange = () => refresh();
+    $("rangeSel").onchange = async () => {
+      await refresh();
+      if (drawerOpen && activeBinId) await openBinDrawer(activeBinId, { soft:true });
+    };
     $("onlyAlerts").onchange = () => refresh();
+
+    // drawer
+    $("btnCloseDrawer").onclick = () => closeDrawer();
+    $("drawerOverlay").onclick = () => closeDrawer();
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && drawerOpen) closeDrawer();
+    });
+
+    // exposed opener
+    window.__openBin = (binId) => openBinDrawer(binId);
   }
 
   document.addEventListener("DOMContentLoaded", () => {
