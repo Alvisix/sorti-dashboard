@@ -292,3 +292,100 @@ tbody tr.priWarn td:first-child{ border-left-color: rgba(247,201,72,.95); }
   font-size: 13px;
   white-space: pre-wrap;
 }
+/* ===== Responsive visibility ===== */
+.onlyDesktop { display:block; }
+.onlyMobile { display:none; }
+@media (max-width: 820px){
+  .onlyDesktop { display:none !important; }
+  .onlyMobile { display:block !important; }
+}
+
+/* ===== Mobile Cards ===== */
+.cardsGrid{
+  display:grid;
+  grid-template-columns: 1fr;
+  gap:12px;
+  margin-top: 6px;
+}
+.binCard{
+  border:1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.045);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  padding:14px;
+  backdrop-filter: blur(10px);
+  cursor:pointer;
+  user-select:none;
+}
+.binCard:active{ transform: translateY(1px); }
+.binCardTop{
+  display:flex; align-items:flex-start; justify-content:space-between; gap:10px;
+  margin-bottom: 10px;
+}
+.binCardId{ font-weight: 950; letter-spacing:.2px; font-size: 14px; }
+.binCardMeta{ color: var(--muted); font-size: 12.5px; }
+.binCardFillRow{
+  display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
+}
+.binCardFillLeft{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+}
+.binCardActions{
+  display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;
+}
+
+/* ===== Drawer drill-down ===== */
+.drawerOverlay{
+  position:fixed; inset:0;
+  background: rgba(0,0,0,.55);
+  backdrop-filter: blur(4px);
+  opacity:0; pointer-events:none;
+  transition: .18s opacity;
+  z-index: 50;
+}
+.drawer{
+  position:fixed;
+  top:0; right:0;
+  height:100vh;
+  width: min(560px, 92vw);
+  background: rgba(10,18,32,.96);
+  border-left: 1px solid rgba(255,255,255,.10);
+  box-shadow: -20px 0 60px rgba(0,0,0,.55);
+  transform: translateX(105%);
+  transition: .22s transform;
+  z-index: 60;
+  display:flex;
+  flex-direction: column;
+}
+.drawer.open{ transform: translateX(0%); }
+.drawerOverlay.open{ opacity:1; pointer-events:auto; }
+
+.drawerTop{
+  padding: 16px 16px 12px;
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.drawerTitle{ font-weight: 950; font-size: 16px; letter-spacing:.2px; }
+.drawerSub{ margin-top:4px; font-size: 12.5px; }
+
+.drawerBody{
+  padding: 14px 16px 22px;
+  overflow:auto;
+}
+
+.ddKpis{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:10px;
+}
+@media (max-width: 420px){
+  .ddKpis{ grid-template-columns: 1fr; }
+}
+.kpiTight{ padding:12px; border-radius:16px; }
+.kpiTight .value{ font-size: 18px; margin-top:6px; }
+
+.ddCanvas{ height: 220px; }
+
