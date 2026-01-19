@@ -14,8 +14,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 
-  <!-- ✅ CSS esterno -->
-  <link rel="stylesheet" href="/static/app.css?v=1">
+  <link rel="stylesheet" href="/static/app.css?v=2">
 </head>
 
 <body>
@@ -151,13 +150,14 @@
       </div>
     </div>
 
+    <!-- DESKTOP TABLE -->
     <div class="card" style="margin-top:16px">
       <div class="cardHeader">
         <div class="title">Bins</div>
-        <div class="small muted">priorità: crit → warn → ok</div>
+        <div class="small muted">tap/click su un bin per dettagli</div>
       </div>
 
-      <div class="tableWrap">
+      <div class="tableWrap onlyDesktop">
         <table>
           <thead>
             <tr>
@@ -172,6 +172,9 @@
           <tbody id="binsBody"></tbody>
         </table>
       </div>
+
+      <!-- MOBILE CARDS -->
+      <div id="binsCards" class="cardsGrid onlyMobile"></div>
     </div>
 
     <div class="card" style="margin-top:16px">
@@ -220,11 +223,96 @@
     </div>
   </div>
 
-  <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <!-- Drill-down Drawer -->
+  <div id="drawerOverlay" class="drawerOverlay" aria-hidden="true"></div>
 
-  <!-- ✅ JS esterno -->
-  <script src="/static/app.js?v=1" defer></script>
+  <aside id="drawer" class="drawer" aria-hidden="true">
+    <div class="drawerTop">
+      <div>
+        <div class="drawerTitle" id="ddTitle">Bin —</div>
+        <div class="drawerSub muted" id="ddSub">—</div>
+      </div>
+      <button class="btnGhost btnMini" id="btnCloseDrawer">Chiudi</button>
+    </div>
+
+    <div class="drawerBody">
+      <div class="ddKpis">
+        <div class="kpi kpiTight">
+          <div class="label">Riempimento</div>
+          <div id="ddFill" class="value">—</div>
+          <div id="ddFillHint" class="hint">—</div>
+        </div>
+        <div class="kpi kpiTight">
+          <div class="label">Peso attuale</div>
+          <div id="ddWeight" class="value">—</div>
+          <div class="hint">nel bin</div>
+        </div>
+        <div class="kpi kpiTight">
+          <div class="label">Capacità</div>
+          <div id="ddCap" class="value">—</div>
+          <div class="hint">configurata</div>
+        </div>
+        <div class="kpi kpiTight">
+          <div class="label">Ultimo update</div>
+          <div id="ddLast" class="value">—</div>
+          <div class="hint">—</div>
+        </div>
+      </div>
+
+      <div class="sep"></div>
+
+      <div class="row" style="justify-content:space-between; align-items:center">
+        <div class="title">Azioni</div>
+        <div class="row">
+          <button class="btnGhost btnMini" id="ddBtnCapacity">Capacità</button>
+          <button class="btnDanger btnMini" id="ddBtnEmpty">Svuota</button>
+        </div>
+      </div>
+
+      <div class="sep"></div>
+
+      <div class="cardHeader" style="padding:0; margin:0 0 8px">
+        <div class="title">CO₂ (bin) nel range</div>
+        <div class="small muted"><span id="ddRangeLabel">—</span></div>
+      </div>
+      <div class="canvasWrap ddCanvas"><canvas id="ddLine"></canvas></div>
+      <div id="ddLineEmpty" class="emptyState" style="display:none">Nessun dato nel range selezionato.</div>
+
+      <div class="sep"></div>
+
+      <div class="cardHeader" style="padding:0; margin:0 0 8px">
+        <div class="title">Materiali (bin) nel range</div>
+        <div class="small muted">peso totale</div>
+      </div>
+      <div class="canvasWrap ddCanvas"><canvas id="ddPie"></canvas></div>
+      <div id="ddPieEmpty" class="emptyState" style="display:none">Nessun dato materiali.</div>
+
+      <div class="sep"></div>
+
+      <div class="cardHeader" style="padding:0; margin:0 0 8px">
+        <div class="title">Ultimi eventi (bin)</div>
+        <div class="small muted">richiede admin key valida</div>
+      </div>
+      <div id="ddEventsEmpty" class="emptyState" style="display:none"></div>
+      <div class="tableWrap">
+        <table class="eventsTable">
+          <thead>
+            <tr>
+              <th>Quando</th>
+              <th>Materiale</th>
+              <th>Peso</th>
+              <th>CO₂</th>
+              <th style="text-align:right">event_id</th>
+            </tr>
+          </thead>
+          <tbody id="ddEventsBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </aside>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="/static/app.js?v=2" defer></script>
 </body>
 </html>
 
