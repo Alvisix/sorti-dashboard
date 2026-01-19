@@ -86,6 +86,7 @@ def is_admin(x_api_key: str | None) -> bool:
 # =========================
 _rl: dict[str, list[float]] = {}
 
+
 def rate_limit_or_429(key: str) -> None:
     now = time.time()
     window = 60.0
@@ -105,6 +106,7 @@ def rate_limit_or_429(key: str) -> None:
 # SSE: broker aggiornamenti
 # =========================
 _sse_clients: set[asyncio.Queue] = set()
+
 
 def sse_publish(event: str = "update", data: dict | str | None = None) -> None:
     if data is None:
@@ -195,7 +197,7 @@ async def stream():
 
 
 # =========================
-# Helper: daily aggregation
+# Helper: daily aggregation (globale)
 # =========================
 def compute_daily(days: int) -> list[dict]:
     days = max(1, min(int(days), 365))
@@ -209,6 +211,42 @@ def compute_daily(days: int) -> list[dict]:
             WHERE ts >= ?
             ORDER BY ts ASC
         """, (cutoff_iso,)).fetchall()
+
+    agg: dict[str, dict] = {}
+    for r in rows:
+        ts_val = r["ts"]
+        if isinstance(ts_val, datetime):
+            day = ts_val.date().isoformat()
+        else:
+            day = str(ts_val)[:10]
+
+        w = float(r["weight_g"] or 0)
+        c = float(r["co2_saved_g"] or 0)
+
+        if day not in agg:
+            agg[day] = {"day": day, "weight_g": 0.0, "co2_saved_g": 0.0}
+
+        agg[day]["weight_g"] += w
+        agg[day]["co2_saved_g"] += c
+
+    return [agg[k] for k in sorted(agg.keys())]
+
+
+# =========================
+# ✅ Helper: daily aggregation (per-bin)
+# =========================
+def compute_daily_for_bin(bin_id: str, days: int) -> list[dict]:
+    days = max(1, min(int(days), 365))
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff_iso = cutoff.isoformat()
+
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT ts, weight_g, co2_saved_g
+            FROM events
+            WHERE ts >= ? AND bin_id = ?
+            ORDER BY ts ASC
+        """, (cutoff_iso, bin_id)).fetchall()
 
     agg: dict[str, dict] = {}
     for r in rows:
@@ -433,6 +471,82 @@ def list_bins():
 
 
 # =========================
+# ✅ API: dettaglio singolo bin (per drill-down)
+# =========================
+@app.get("/api/bins/{bin_id}")
+def bin_detail(
+    bin_id: str,
+    days: int = 30,
+    events_limit: int = 20,
+    x_api_key: str | None = Header(default=None),
+):
+    days = max(1, min(int(days), 365))
+    events_limit = max(1, min(int(events_limit), 200))
+
+    with get_conn() as conn:
+        b = conn.execute("""
+            SELECT bin_id, capacity_g, current_weight_g, last_seen
+            FROM bins
+            WHERE bin_id=?
+        """, (bin_id,)).fetchone()
+
+    if not b:
+        raise HTTPException(status_code=404, detail="Bin non trovato")
+
+    capacity = float(b["capacity_g"])
+    current = float(b["current_weight_g"])
+    fill_percent = 0.0 if capacity <= 0 else min(100.0, (current / capacity) * 100.0)
+
+    daily = compute_daily_for_bin(bin_id, days)
+    mats = stats_by_material_for_bin(bin_id, days=days)  # defined below
+
+    admin = is_admin(x_api_key)
+    recent = []
+    if admin:
+        with get_conn() as conn:
+            rows = conn.execute("""
+                SELECT id, ts, material, weight_g, co2_saved_g,
+                       source, model_version, confidence, image_ref
+                FROM events
+                WHERE bin_id=?
+                ORDER BY id DESC
+                LIMIT ?
+            """, (bin_id, events_limit)).fetchall()
+
+        for r in rows:
+            recent.append({
+                "id": r["id"],
+                "ts": r["ts"],
+                "bin_id": bin_id,
+                "material": r["material"],
+                "weight_g": float(r["weight_g"]),
+                "co2_saved_g": float(r["co2_saved_g"]),
+                "source": r.get("source") if isinstance(r, dict) else r["source"],
+                "model_version": r.get("model_version") if isinstance(r, dict) else r["model_version"],
+                "confidence": (float(r["confidence"]) if r.get("confidence") is not None else None) if isinstance(r, dict)
+                              else (float(r["confidence"]) if r["confidence"] is not None else None),
+                "image_ref": r.get("image_ref") if isinstance(r, dict) else r["image_ref"],
+            })
+
+    return {
+        "ok": True,
+        "bin": {
+            "bin_id": b["bin_id"],
+            "capacity_g": capacity,
+            "current_weight_g": current,
+            "fill_percent": fill_percent,
+            "last_seen": b["last_seen"],
+        },
+        "days": days,
+        "is_admin": admin,
+        "daily": daily,
+        "by_material": mats,
+        "recent_events": recent,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# =========================
 # API: statistiche totali (LIBERO)
 # =========================
 @app.get("/api/stats/total")
@@ -466,6 +580,36 @@ def stats_by_material():
             GROUP BY material
             ORDER BY weight_g DESC
         """).fetchall()
+
+    return [
+        {
+            "material": r["material"],
+            "weight_g": float(r["weight_g"]),
+            "co2_saved_g": float(r["co2_saved_g"]),
+        }
+        for r in rows
+    ]
+
+
+# =========================
+# ✅ Helper: report per materiale (per-bin nel range)
+# =========================
+def stats_by_material_for_bin(bin_id: str, days: int) -> list[dict]:
+    days = max(1, min(int(days), 365))
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff_iso = cutoff.isoformat()
+
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT
+              material,
+              COALESCE(SUM(weight_g), 0) AS weight_g,
+              COALESCE(SUM(co2_saved_g), 0) AS co2_saved_g
+            FROM events
+            WHERE ts >= ? AND bin_id = ?
+            GROUP BY material
+            ORDER BY weight_g DESC
+        """, (cutoff_iso, bin_id)).fetchall()
 
     return [
         {
@@ -638,6 +782,7 @@ def empty_bin(
     sse_publish("update", {"type": "empty", "bin_id": bin_id, "ts": now})
 
     return {"ok": True, "bin_id": bin_id, "emptied_at": now}
+
 
 
 
