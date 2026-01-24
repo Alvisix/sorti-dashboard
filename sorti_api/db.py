@@ -5,7 +5,14 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
-SQLITE_PATH = Path(__file__).resolve().parent.parent / "sorti.db"
+# Struttura: sorti_api/
+#   - db.py  <-- questo file
+#   - data/
+#       - sorti.db  <-- qui dentro vogliamo il DB
+APP_DIR = Path(__file__).resolve().parent
+DATA_DIR = APP_DIR / "data"
+SQLITE_PATH = DATA_DIR / "sorti.db"
+
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 USE_POSTGRES = bool(DATABASE_URL)
 
@@ -15,6 +22,7 @@ def _qmarks_to_psycopg(sql: str) -> str:
 
 
 def _rewrite_daily_sql(sql: str) -> str:
+    # riscrive SOLO la query "daily" quando siamo su Postgres
     if "substr(ts, 1, 10) AS day" in sql and "datetime('now'" in sql:
         return """
             SELECT
@@ -69,6 +77,9 @@ class DBConn:
 
 def get_conn() -> DBConn:
     if not USE_POSTGRES:
+        # assicura che la cartella data/ esista anche su ambienti "fresh"
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+
         conn = sqlite3.connect(SQLITE_PATH)
         conn.row_factory = sqlite3.Row
         return DBConn("sqlite", conn)
@@ -87,14 +98,13 @@ def _sqlite_add_column_if_missing(conn: DBConn, table: str, col: str, coltype: s
 
 
 def _pg_add_column_if_missing(conn: DBConn, table: str, col: str, coltype: str) -> None:
-    # IF NOT EXISTS è supportato nelle versioni moderne di Postgres
     conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {coltype}")
 
 
 def init_db() -> None:
     with get_conn() as conn:
-        if not USE_POSTGRES:
-            # SQLite: crea base
+        if conn.backend == "sqlite":
+            # SQLite: crea tabelle base
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS bins (
                     bin_id TEXT PRIMARY KEY,
@@ -126,7 +136,7 @@ def init_db() -> None:
             _sqlite_add_column_if_missing(conn, "events", "image_ref", "TEXT")
 
         else:
-            # Postgres: crea base
+            # Postgres: crea tabelle base
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS bins (
                     bin_id TEXT PRIMARY KEY,
@@ -155,6 +165,7 @@ def init_db() -> None:
             _pg_add_column_if_missing(conn, "events", "confidence", "DOUBLE PRECISION")
             _pg_add_column_if_missing(conn, "events", "topk_json", "TEXT")
             _pg_add_column_if_missing(conn, "events", "image_ref", "TEXT")
+
 
 
 
