@@ -234,6 +234,7 @@ tbody tr.priCritical td:first-child{ border-left-color: rgba(255,93,93,.95); }
 tbody tr.priWarn td:first-child{ border-left-color: rgba(247,201,72,.95); }
 
 .fillWrap{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.sensorMeta{ margin-top:8px; color: var(--muted2); font-size:12px; line-height:1.35; }
 .fillPill{
   padding:6px 10px;
   border-radius:999px;
@@ -292,7 +293,7 @@ tbody tr.priWarn td:first-child{ border-left-color: rgba(247,201,72,.95); }
   font-size: 13px;
   white-space: pre-wrap;
 }
-/* ===== Responsive visibility ===== */
+
 .onlyDesktop { display:block; }
 .onlyMobile { display:none; }
 @media (max-width: 820px){
@@ -300,7 +301,6 @@ tbody tr.priWarn td:first-child{ border-left-color: rgba(247,201,72,.95); }
   .onlyMobile { display:block !important; }
 }
 
-/* ===== Mobile Cards ===== */
 .cardsGrid{
   display:grid;
   grid-template-columns: 1fr;
@@ -334,7 +334,6 @@ tbody tr.priWarn td:first-child{ border-left-color: rgba(247,201,72,.95); }
   display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;
 }
 
-/* ===== Drawer drill-down ===== */
 .drawerOverlay{
   position:fixed; inset:0;
   background: rgba(0,0,0,.55);
@@ -347,7 +346,7 @@ tbody tr.priWarn td:first-child{ border-left-color: rgba(247,201,72,.95); }
   position:fixed;
   top:0; right:0;
   height:100vh;
-  width: min(560px, 92vw);
+  width: min(620px, 94vw);
   background: rgba(10,18,32,.96);
   border-left: 1px solid rgba(255,255,255,.10);
   box-shadow: -20px 0 60px rgba(0,0,0,.55);
@@ -389,3 +388,58 @@ tbody tr.priWarn td:first-child{ border-left-color: rgba(247,201,72,.95); }
 
 .ddCanvas{ height: 220px; }
 
+.compGrid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:10px;
+}
+@media (max-width: 560px){
+  .compGrid{ grid-template-columns: 1fr; }
+}
+.compCard{
+  border:1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.04);
+  border-radius:16px;
+  padding:12px;
+}
+.compCardTop{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:10px;
+}
+.compTitle{
+  font-weight:900;
+  letter-spacing:.2px;
+}
+.compMeta{
+  color:var(--muted2);
+  font-size:12px;
+  margin-top:4px;
+}
+.compRow{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  align-items:center;
+  margin-top:10px;
+}
+.compTiny{
+  font-size:12px;
+  color:var(--muted);
+}
+.compBar{
+  margin-top:12px;
+  height:12px;
+  width:100%;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.05);
+  overflow:hidden;
+}
+.compBar > div{
+  height:100%;
+  width:0%;
+  border-radius:999px;
+  transition: width .25s ease;
+}
